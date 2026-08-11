@@ -57,46 +57,53 @@ The French version is slice C (`index.fr.md`) — not this spec.
 - As a polyglot dev, I can run the worker of my language twice in two terminals with one documented
   command each and watch the distribution happen.
 
-Testable criteria — each is a named check in `blog/work-queue-redis-streams/verify.sh`:
+Testable criteria — each is a named check in `blog/work-queue-redis-streams/verify.sh`.
+**All 17 checks green on 2026-08-11** (`./blog/work-queue-redis-streams/verify.sh` → `17 passed, 0
+failed`), alongside `luacheck` 0 errors and `mvn clean test` 93/93, 0 skipped — the pair that proves
+the post required no demo or Lua change.
 
-- [ ] `chk_shellcheck` — `shellcheck` on `samples/setup.sh` and on `verify.sh` → 0 findings.
-- [ ] `chk_setup` — on a fresh `redis:8.8-alpine`, `samples/setup.sh` run **twice** exits 0 both
+- [x] `chk_shellcheck` — `shellcheck` on `samples/setup.sh` and on `verify.sh` → 0 findings.
+- [x] `chk_setup` — on a fresh `redis:8.8-alpine`, `samples/setup.sh` run **twice** exits 0 both
       times (idempotent), and afterwards `FUNCTION LIST LIBRARYNAME stream_utils` is non-empty and
       `XINFO GROUPS jobs.imageProcessing.v1` lists `jobs-group`.
-- [ ] `chk_walkthrough` — every `` ```bash `` block between `<!-- verify:begin -->` /
+- [x] `chk_walkthrough` — every `` ```bash `` block between `<!-- verify:begin -->` /
       `<!-- verify:end -->` markers in `index.md`, replayed **in document order, verbatim, in one
       shell** (with `redis-cli` rewritten to the harness port), exits 0 and leaves the end state the
       post claims: `XPENDING jobs.imageProcessing.v1 jobs-group` summary count is `0` and
       `XLEN jobs.imageProcessing.v1:dlq` is `1`.
-- [ ] `chk_distribution` — inside that replay, two different consumer names reading the same group
+- [x] `chk_distribution` — inside that replay, two different consumer names reading the same group
       receive **disjoint** entry ids, and the union equals the produced set (no entry delivered
       twice, none skipped). Asserted on ids, never on how the split happened to fall.
-- [ ] `chk_recovery` — inside that replay: an entry read as `worker-2` and left un-ACKed is, after
+- [x] `chk_recovery` — inside that replay: an entry read as `worker-2` and left un-ACKed is, after
       `minIdle` has elapsed, returned by a `FCALL read_claim_or_dlq` issued as `worker-1`, and
       `XINFO CONSUMERS jobs.imageProcessing.v1 jobs-group` **still lists `worker-2`** (proof the post
       never tells the reader to `XGROUP DELCONSUMER`).
-- [ ] `chk_sample_<lang>` for **java, python, node, go, csharp, rust** — with
+- [x] `chk_sample_<lang>` for **java, python, node, go, csharp, rust** — with
       `SAMPLE_EXIT_AFTER_IDLE_POLLS=3` set, the documented one-liner exits **0** on its own, and its
       stdout shows (a) at least one `job … done` line naming the consumer it was passed and (b) a
       `no new jobs` line before it exits. Then: two instances of the **same** sample started with
       different consumer names against a 10-job backlog together drain it, each printing ≥ 1 job,
       with `XPENDING` back to 0 and **no `jobId` completed twice** (union of `jobs.done.worker-*`).
-- [ ] `chk_wordcount` — prose word count of `index.md` (fenced code blocks and URLs excluded) is
+- [x] `chk_wordcount` — prose word count of `index.md` (fenced code blocks and URLs excluded) is
       **1600–1900**.
-- [ ] `chk_links` — every `github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/(blob|tree)/…`
+- [x] `chk_links` — every `github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/(blob|tree)/…`
       URL in `index.md` is pinned on **`blog-workqueue-v1`** and its path exists in the working tree.
-- [ ] `chk_forbidden` — `websocket|sockjs|angular|spring` appears nowhere in the prose (fenced blocks
+      **Amended 2026-08-11**: links *into post #1* are pinned on **its** already-published tag
+      (`blog-dlq-v1`), so the check accepts either tag and rejects anything on a branch. The first
+      version of the check failed the post's own back-reference, which was a harness bug, not a
+      content error.
+- [x] `chk_forbidden` — `websocket|sockjs|angular|spring` appears nowhere in the prose (fenced blocks
       stripped, and the closing "see it live" section wrapped in
       `<!-- forbidden-exempt:begin/end -->` as post #1 does).
-- [ ] `chk_img` — `img/work-queue-flow.png` exists and `index.md` references it as
+- [x] `chk_img` — `img/work-queue-flow.png` exists and `index.md` references it as
       `![<alt text>](img/work-queue-flow.png)` with non-empty alt text.
-- [ ] `chk_coherence` — the timing numbers the post pins are the demo's own: the post's prose
+- [x] `chk_coherence` — the timing numbers the post pins are the demo's own: the post's prose
       contains `2000` (work) and `5000` (`minIdle`) **and** `WorkQueueService.java` still declares
       `SLOW("Slow", 2000, 5000, …)`. Fails loudly if either side moves — this is the drift guard the
       series brief asks for.
-- [ ] `chk_no_xautoclaim` — neither `index.md` nor any sample mentions `XAUTOCLAIM` or `XNACK`
+- [x] `chk_no_xautoclaim` — neither `index.md` nor any sample mentions `XAUTOCLAIM` or `XNACK`
       (out of scope by the brief: they belong to other patterns / post #1).
-- [ ] `mvn clean test` still green and `luacheck lua/ --globals redis cjson cmsgpack bit` still 0
+- [x] `mvn clean test` still green and `luacheck lua/ --globals redis cjson cmsgpack bit` still 0
       errors — proves the post required no demo or Lua change.
 
 ## Inputs & outputs
@@ -159,6 +166,17 @@ Same self-starting shape as post #1's (that convention shipped in PR #18), with 
 ### Samples contract (all 6 identical in behavior)
 
 A **worker**, not a one-shot script — this is the shape post #2 teaches:
+
+**Amendment (2026-08-11) — five block, C# polls.** Verified via Context7: StackExchange.Redis (which
+NRedisStack sits on) ships **no blocking commands at all** — *"Due to its multiplexing nature,
+StackExchange.Redis does not offer blocking pop commands … as they could stall the entire
+multiplexer"* — and `StreamReadGroup` exposes no `BLOCK`. So the C# sample **polls**:
+`StreamReadGroup(count: 1)` plus a 1 s sleep when the read is empty, with a header comment naming the
+reason. Its sweep still goes through `db.Execute("FCALL", …)` as post #1's C# sample does. The post
+gains **one sentence** on it, and `chk_sample_csharp` must not require a blocking read. Rejected:
+forcing `db.Execute("XREADGROUP", …, "BLOCK", …)`, which works around a deliberate design choice and
+risks `SyncTimeout` flakiness. The deviation is useful content — it is a constraint readers hit, and it
+reinforces the post's own "why the demo polls" paragraph.
 
 - **Args:** `$1` = consumer name, default `worker-1`.
 - **Env:** `REDIS_URL` (default `redis://localhost:6379`), `SAMPLE_EXIT_AFTER_IDLE_POLLS`
@@ -280,9 +298,27 @@ written:
    #1's description — if the two posts describe it differently, one of them is wrong).
 4. The `/work-queue` page's info text ↔ the post's numbers (the `chk_coherence` box automates the
    `2000`/`5000` half of this).
+5. **`docs/diagrams/work-queue.md`** — added 2026-08-11: this file was missing from the list above and
+   turned out to be the worst offender. `README.md` links to it.
 
 Report every discrepancy with a proposed fix and **wait for the author's explicit validation before
 changing any demo code or existing doc** — the post adapts to the code, not the reverse.
+
+### Audit result (run 2026-08-11 — docs only, no demo code touched)
+
+| # | Surface | Verdict |
+|---|---|---|
+| 1 | `README.md:300` | ❌ **stale** — "One consumer group, 4 Virtual-Thread workers". → rewritten to 1–8 adjustable at runtime + the kill demo. |
+| 2 | `docs/specs/work-queue.md` | ✅ clean — slice A rewrote it from the code (`jobs-group`, the `SLOW` 2000/5000 and `FAST` 50/500 presets, the three `/workers` endpoints, no "Inferred" left). |
+| 3 | `lua/stream_utils.lua` ↔ post #1 | ✅ clean — post #1's pseudo-code (`index.md` l. 61-67) mirrors the Lua 1:1. Post #2 recalls **that exact wording** in ≤ 3 lines rather than paraphrasing it. |
+| 4 | `/work-queue` page text | ✅ better than clean — the page *interpolates* the backend's numbers (`{{ opt.workMs }}`, `{{ demo.minIdleMs }}`), so it is structurally incapable of drifting. Only the post can drift, which is what `chk_coherence` guards. |
+| 5 | `docs/diagrams/work-queue.md` | ❌ **wrong on five axes** — `jobs.workqueue.v1`, `job-queue-group`, `workerN.done`, a fixed 3 workers (the doc twin of slice A's finding #3, never fixed), plus a **factually false guarantee**: it advertised "Exactly-Once Delivery", which consumer groups do not provide and which this post explicitly contradicts. It also showed `XACK` *before* the done-stream `XADD`, the reverse of the code. → rewritten from the code, with at-least-once, the `minIdle` rule and the `DELCONSUMER` trap stated. |
+
+No demo-code change was needed, so the validation gate was not triggered. One **opportunity** found
+while checking versions, recorded in `docs/TODO.md` and deliberately **not** acted on here: **Jedis
+8.0.0 is now GA** and ships a typed `xnack(String, String, XNackMode, StreamEntryID…)`, which unblocks
+the `DLQMessagingService.XnackCommand` raw-`sendCommand` workaround (ADR-0011). That is a demo change,
+out of this post's scope, and the author's call.
 
 ## Out of scope
 
@@ -327,9 +363,21 @@ Docker — all present in this VM per `CLAUDE.md`. Budget note: the harness slee
 
 ## Dependencies & risks
 
-- **No new project dependency.** The samples' client libraries are resolved to their **latest stable
-  via Context7 at implementation time** (Jedis — align with the repo's 7.5.3 —, redis-py,
-  node-redis, go-redis v9, NRedisStack, Rust `redis`), never from training memory.
+- **No new project dependency** — the samples are standalone mini-projects; the demo keeps Jedis and
+  nothing else. Client versions **verified against the registries 2026-08-11** (authoritative metadata,
+  not training memory), and post #1's pins are stale in three places:
+
+  | Sample | Post #1 pins | Latest stable | Post #2 uses |
+  |---|---|---|---|
+  | java (Jedis) | 7.5.3 | **8.0.0** (GA) | **8.0.0** — `count/block/claim` + `fcall` are byte-identical to 7.5.3 (checked with `javap` on both jars), so nothing in the prose changes |
+  | python (redis-py) | `redis>=8` | 8.1.0 | `redis>=8.1` (floating pin already resolved to it) |
+  | node (node-redis) | `^6.1.0` | 6.2.1 | `^6.2.1` |
+  | go (go-redis) | v9.21.0 | v9.22.0 | v9.22.0 |
+  | csharp (NRedisStack) | 0.13.1 | **1.7.3** (SE.Redis 3.1.13) | **1.7.3** — a major jump; API re-verified by running it |
+  | rust (`redis`) | 0.32 | **1.5.0** | **1.5.0** — crosses 1.0, so `StreamReadOptions` is re-verified by running it |
+
+  Post #1's samples are left alone (they pin their own versions and still run); the drift is recorded in
+  `docs/TODO.md` as a separate chore.
 - **Riskiest #1 — the two read paths in the samples.** `read_claim_or_dlq` returns new messages as
   well as reclaimed ones, so a sample that routes only the `XREADGROUP` result to its handler leaks a
   job that is read and never ACKed. Mitigation: the single-handler rule above, plus the

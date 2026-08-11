@@ -297,7 +297,8 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 
 **What it solves**: Spread jobs across parallel workers; each job handled by exactly one worker.
 
-**Key concepts**: One consumer group, 4 Virtual-Thread workers; failed jobs retry then route to DLQ.
+**Key concepts**: One consumer group, 1–8 Virtual-Thread workers adjustable at runtime (4 at startup);
+add, remove or **kill** a worker from the page; failed jobs retry then route to DLQ.
 
 ### 5. 📡 Fan-Out (Broadcast) — `/fan-out`
 

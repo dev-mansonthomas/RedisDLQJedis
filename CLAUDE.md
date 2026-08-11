@@ -57,6 +57,10 @@ observability over hardening.
 - `frontend/src/app/components/<pattern>/` — one Angular component per pattern page
 - `frontend/src/app/services/` — `redis-api`, `websocket`, `stream-refresh`, `routing-rules`, `diagram-definitions`, `llm-chat`
 - `service/llm/` — pattern #12 LLM abstraction (`LlmClient`, `MockLlmClient`); orchestration in `LlmChatService` + `LlmResponderWorker` + `LlmTokenListenerService`
+- `blog/<slug>/` — the blog series: `index.md` (+ `index.fr.md`), `img/`, `samples/` (6 runnable
+  languages), `verify.sh` (the post's acceptance harness — one command, own throwaway Redis).
+  Publication is a **pinned tag** per post: see [`blog/PUBLISHING.md`](blog/PUBLISHING.md).
+  Shipped: `dlq-redis-streams` (`blog-dlq-v1`), `work-queue-redis-streams` (`blog-workqueue-v1`).
 - `docs/` — agent-facing docs (this map points into them)
 - `augmentcode/` — **legacy** agent notes (covers only the first 4 patterns; superseded by `docs/`)
 

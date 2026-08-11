@@ -22,8 +22,8 @@ live yet.
 
 | Part | Rule | Example |
 |------|------|---------|
-| Tag | `blog-<short-slug>-v<N>` | `blog-dlq-v1` |
-| `<short-slug>` | the post's short name (not the full dir) | `dlq` for `blog/dlq-redis-streams/` |
+| Tag | `blog-<short-slug>-v<N>` | `blog-dlq-v1`, `blog-workqueue-v1` |
+| `<short-slug>` | the post's short name (not the full dir) | `dlq` for `blog/dlq-redis-streams/`, `workqueue` for `blog/work-queue-redis-streams/` |
 | `<N>` | bump on any republish that changes linked code/line numbers | `v1`, `v2`, … |
 
 The tag string is fixed in the post's spec (`docs/specs/blog-<post>.md`) and hard-coded in every
@@ -61,6 +61,31 @@ done
 git tag -a "$TAG" "$(git rev-parse HEAD)" -m "Redis blog post — DLQ on Redis Streams (publication snapshot)"
 git push origin "$TAG"
 ```
+
+### Path list — post #2 (`blog-workqueue-v1`)
+
+Same procedure, different paths. The post links six samples, `setup.sh`, and two line ranges in the
+demo's service, so all of them must exist at the commit you tag:
+
+```bash
+TAG=blog-workqueue-v1
+SLUG=work-queue-redis-streams
+for p in \
+  blog/$SLUG/samples/setup.sh \
+  blog/$SLUG/samples/java/src/main/java/WorkQueueWorker.java \
+  blog/$SLUG/samples/python/work_queue_worker.py \
+  blog/$SLUG/samples/node/work-queue-worker.mjs \
+  blog/$SLUG/samples/go/main.go \
+  blog/$SLUG/samples/csharp/Program.cs \
+  blog/$SLUG/samples/rust/src/main.rs \
+  src/main/java/com/redis/patterns/service/WorkQueueService.java ; do
+    git cat-file -e "HEAD:$p" && echo "OK  $p" || echo "MISSING  $p"
+done
+```
+
+**Line numbers matter for this post.** It pins `WorkQueueService.java#L225-L229` (the `fcall` call) and
+`#L478` (`removeWorker`). If either moves before you tag, fix the permalinks first — the harness's
+`chk_links` only checks that the *file* exists, not that the lines still say what the article claims.
 
 ## Verify the links resolve
 
