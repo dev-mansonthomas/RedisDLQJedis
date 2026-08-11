@@ -102,6 +102,16 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
 - 🟡 **`fanOut` diagram hard-codes 3 workers** in `diagram-definitions.service.ts` (the `workQueue`
   one was fixed in this slice, along with its wrong stream/group names). → Fix when the fan-out post
   is written.
+- 🟡 **The input stream viewer empties itself while the stream still holds the entries** — surfaced by
+  the manual pass on 2026-08-11 (`./launch-docker.sh --build`, burst of 200): the Job Stream panel
+  showed `0 of 199 messages` plus a `... 189 more messages ...` spacer while `XLEN
+  jobs.imageProcessing.v1` was 200. Cause: on success `WorkQueueService.processMessage` broadcasts a
+  `MESSAGE_DELETED` event (pre-existing, commit `c21fcfe`) although the job is only `XACK`ed — never
+  `XDEL`ed — so `stream-viewer` drops the row from `displayedMessages` while `totalMessages` keeps the
+  real count. Cosmetic and **pre-existing**, but the burst makes it obvious. → Either stop lying in the
+  event (rename to `MESSAGE_ACKED` and leave the row) or have the viewer decrement `totalMessages`.
+  Deliberately not fixed with the dynamic-workers slice: `stream-viewer` is shared by all 12 patterns
+  and that spec guards it as untouched.
 
 ## Code review & security
 

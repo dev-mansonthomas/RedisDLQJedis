@@ -104,6 +104,17 @@ Testable criteria — **all verified 2026-08-11** (`mvn clean test`: 93/93, 0 sk
       **`npm run build` exit 0**, 0 errors, bundle generated in 14.9 s (initial total 397.82 kB /
       110.70 kB transferred). Only the pre-existing non-ESM warnings (`sockjs-client`, `langium`).
 
+> **Manual `/work-queue` pass — done 2026-08-11, 13/13 checks.** Driven with Playwright against the
+> real Docker stack (`./launch-docker.sh --build`), asserting Redis state with `redis-cli` rather than
+> the DOM, because the page only shows what it believes. Witnessed: 4 workers / 4 panels at startup;
+> `+ Add worker` → 5 panels, the 5th naming `jobs.done.worker-5`; a 200-job burst drained to
+> `XPENDING` 0 with **180 completions for 180 distinct jobIds and 20 in the DLQ** (200 accounted for,
+> zero duplicates — the regression that motivated the presets); `Kill worker` mid-job left the entry
+> PENDING and unfinished with the consumer still in `XINFO CONSUMERS`, then a **different** worker
+> completed `JOB-KILLME1` exactly once; `Clear All` emptied every stream and recreated the group; the
+> mermaid diagram shows the real names; no console errors. Script and screenshots are session
+> artifacts (not committed). One pre-existing viewer defect found and recorded in `docs/TODO.md`.
+
 > **Note — how the build gate was reached (2026-08-11).** The build first died three times with a bare
 > `Killed`: an unrelated Redis Enterprise container in the VM (`rec1`, 1.5 GiB) left only ~1.5 GB of
 > 7.9 GB free, the build climbed to ~1.1 GB and the kernel OOM-killed it (measured: `avail` fell to
