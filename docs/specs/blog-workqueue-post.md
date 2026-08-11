@@ -160,6 +160,17 @@ Same self-starting shape as post #1's (that convention shipped in PR #18), with 
 
 A **worker**, not a one-shot script — this is the shape post #2 teaches:
 
+**Amendment (2026-08-11) — five block, C# polls.** Verified via Context7: StackExchange.Redis (which
+NRedisStack sits on) ships **no blocking commands at all** — *"Due to its multiplexing nature,
+StackExchange.Redis does not offer blocking pop commands … as they could stall the entire
+multiplexer"* — and `StreamReadGroup` exposes no `BLOCK`. So the C# sample **polls**:
+`StreamReadGroup(count: 1)` plus a 1 s sleep when the read is empty, with a header comment naming the
+reason. Its sweep still goes through `db.Execute("FCALL", …)` as post #1's C# sample does. The post
+gains **one sentence** on it, and `chk_sample_csharp` must not require a blocking read. Rejected:
+forcing `db.Execute("XREADGROUP", …, "BLOCK", …)`, which works around a deliberate design choice and
+risks `SyncTimeout` flakiness. The deviation is useful content — it is a constraint readers hit, and it
+reinforces the post's own "why the demo polls" paragraph.
+
 - **Args:** `$1` = consumer name, default `worker-1`.
 - **Env:** `REDIS_URL` (default `redis://localhost:6379`), `SAMPLE_EXIT_AFTER_IDLE_POLLS`
   (**unset = run forever**, the reader's case; set to `N` = exit 0 after N consecutive polls that
@@ -280,9 +291,27 @@ written:
    #1's description — if the two posts describe it differently, one of them is wrong).
 4. The `/work-queue` page's info text ↔ the post's numbers (the `chk_coherence` box automates the
    `2000`/`5000` half of this).
+5. **`docs/diagrams/work-queue.md`** — added 2026-08-11: this file was missing from the list above and
+   turned out to be the worst offender. `README.md` links to it.
 
 Report every discrepancy with a proposed fix and **wait for the author's explicit validation before
 changing any demo code or existing doc** — the post adapts to the code, not the reverse.
+
+### Audit result (run 2026-08-11 — docs only, no demo code touched)
+
+| # | Surface | Verdict |
+|---|---|---|
+| 1 | `README.md:300` | ❌ **stale** — "One consumer group, 4 Virtual-Thread workers". → rewritten to 1–8 adjustable at runtime + the kill demo. |
+| 2 | `docs/specs/work-queue.md` | ✅ clean — slice A rewrote it from the code (`jobs-group`, the `SLOW` 2000/5000 and `FAST` 50/500 presets, the three `/workers` endpoints, no "Inferred" left). |
+| 3 | `lua/stream_utils.lua` ↔ post #1 | ✅ clean — post #1's pseudo-code (`index.md` l. 61-67) mirrors the Lua 1:1. Post #2 recalls **that exact wording** in ≤ 3 lines rather than paraphrasing it. |
+| 4 | `/work-queue` page text | ✅ better than clean — the page *interpolates* the backend's numbers (`{{ opt.workMs }}`, `{{ demo.minIdleMs }}`), so it is structurally incapable of drifting. Only the post can drift, which is what `chk_coherence` guards. |
+| 5 | `docs/diagrams/work-queue.md` | ❌ **wrong on five axes** — `jobs.workqueue.v1`, `job-queue-group`, `workerN.done`, a fixed 3 workers (the doc twin of slice A's finding #3, never fixed), plus a **factually false guarantee**: it advertised "Exactly-Once Delivery", which consumer groups do not provide and which this post explicitly contradicts. It also showed `XACK` *before* the done-stream `XADD`, the reverse of the code. → rewritten from the code, with at-least-once, the `minIdle` rule and the `DELCONSUMER` trap stated. |
+
+No demo-code change was needed, so the validation gate was not triggered. One **opportunity** found
+while checking versions, recorded in `docs/TODO.md` and deliberately **not** acted on here: **Jedis
+8.0.0 is now GA** and ships a typed `xnack(String, String, XNackMode, StreamEntryID…)`, which unblocks
+the `DLQMessagingService.XnackCommand` raw-`sendCommand` workaround (ADR-0011). That is a demo change,
+out of this post's scope, and the author's call.
 
 ## Out of scope
 
@@ -327,9 +356,21 @@ Docker — all present in this VM per `CLAUDE.md`. Budget note: the harness slee
 
 ## Dependencies & risks
 
-- **No new project dependency.** The samples' client libraries are resolved to their **latest stable
-  via Context7 at implementation time** (Jedis — align with the repo's 7.5.3 —, redis-py,
-  node-redis, go-redis v9, NRedisStack, Rust `redis`), never from training memory.
+- **No new project dependency** — the samples are standalone mini-projects; the demo keeps Jedis and
+  nothing else. Client versions **verified against the registries 2026-08-11** (authoritative metadata,
+  not training memory), and post #1's pins are stale in three places:
+
+  | Sample | Post #1 pins | Latest stable | Post #2 uses |
+  |---|---|---|---|
+  | java (Jedis) | 7.5.3 | **8.0.0** (GA) | **8.0.0** — `count/block/claim` + `fcall` are byte-identical to 7.5.3 (checked with `javap` on both jars), so nothing in the prose changes |
+  | python (redis-py) | `redis>=8` | 8.1.0 | `redis>=8.1` (floating pin already resolved to it) |
+  | node (node-redis) | `^6.1.0` | 6.2.1 | `^6.2.1` |
+  | go (go-redis) | v9.21.0 | v9.22.0 | v9.22.0 |
+  | csharp (NRedisStack) | 0.13.1 | **1.7.3** (SE.Redis 3.1.13) | **1.7.3** — a major jump; API re-verified by running it |
+  | rust (`redis`) | 0.32 | **1.5.0** | **1.5.0** — crosses 1.0, so `StreamReadOptions` is re-verified by running it |
+
+  Post #1's samples are left alone (they pin their own versions and still run); the drift is recorded in
+  `docs/TODO.md` as a separate chore.
 - **Riskiest #1 — the two read paths in the samples.** `read_claim_or_dlq` returns new messages as
   well as reclaimed ones, so a sample that routes only the `XREADGROUP` result to its handler leaks a
   job that is read and never ACKed. Mitigation: the single-handler rule above, plus the

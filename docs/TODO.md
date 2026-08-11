@@ -22,9 +22,19 @@
 
 ## Correctness / build
 
-- 🟡 **XNACK via raw `Jedis.sendCommand`** (`DLQMessagingService.XnackCommand`) — no typed API in
-  any stable Jedis (only 8.0.0-beta1, which also lacks `RETRYCOUNT`/`FORCE`). → Adopt
-  `jedis.xnack(...)` when Jedis 8 goes GA (added 2026-07-09, ADR-0011).
+- 🟠 **XNACK via raw `Jedis.sendCommand`** (`DLQMessagingService.XnackCommand`) — **now unblocked
+  (verified 2026-08-11): Jedis `8.0.0` is GA** (`maven-metadata.xml` `<release>8.0.0`) and ships the
+  typed `xnack(String, String, XNackMode, StreamEntryID...)` with `XNackMode.SILENT|FAIL|FATAL`
+  (`javap` on the 8.0.0 jar). Still no typed `RETRYCOUNT`/`FORCE`, which the demo does not use.
+  → Bump `jedis.version` 7.5.3 → 8.0.0 and replace the raw `sendCommand` workaround; `XReadGroupParams`
+  (`count`/`block`/`claim`) and `fcall` are unchanged between the two jars, so the other patterns should
+  compile untouched. Needs its own slice + `mvn clean test` (added 2026-07-09, ADR-0011).
+- 🟡 **Post #1's samples pin stale client versions** (found while planning post #2, 2026-08-11):
+  `blog/dlq-redis-streams/samples/` uses NRedisStack `0.13.1` (latest **1.7.3**), Rust `redis` `0.32`
+  (latest **1.5.0**, i.e. now past 1.0), go-redis `v9.21.0` (latest `v9.22.0`) and Jedis `7.5.3`
+  (latest `8.0.0`); the Python/Node pins float and already resolve to the latest. They still run, so
+  this is a chore, not a bug. → Bump in one pass **after** post #2 ships, and re-run
+  `blog/dlq-redis-streams/verify.sh`; the NRedisStack and Rust jumps cross majors, so expect API edits.
 - 🟠 **No frontend test runner** — `angular.json` has no `test` target (only `build`/`lint`/`serve`), so
   `npm test` fails, and there are **0 `*.spec.ts`**. Consequence: pure logic gets verified by driving a
   real browser (`computeRate()`, the "max 4 columns" grid rule) instead of by unit test. Good news
