@@ -59,13 +59,15 @@ reset_state() {
   (cd "$REPO_ROOT" && BLOG_WQ_PORT="$PORT" SEED_JOBS=0 "$SCRIPT_DIR/samples/setup.sh" >/dev/null 2>&1)
 }
 
-# $1 = how many jobs. Every 10th is an Error job, like the demo's own producer.
+# $1 = how many jobs, all OK. The sample checks assert XPENDING back to 0 after the drain,
+# and an Error job would legitimately still be pending (it needs maxDeliver deliveries plus a
+# sweep, i.e. more idle time than a worker that exits after 3 idle polls will give it). The
+# retry-then-DLQ path is covered by chk_walkthrough / chk_recovery instead.
 seed_jobs() {
-  local n="$1" i type
+  local n="$1" i
   for i in $(seq 1 "$n"); do
-    if [ $((i % 10)) -eq 0 ]; then type=Error; else type=OK; fi
     rcli XADD "$STREAM" '*' jobId "$(printf 'JOB-%04d' "$i")" \
-      processingType "$type" createdAt '2026-08-11T00:00:00Z' >/dev/null
+      processingType OK createdAt '2026-08-11T00:00:00Z' >/dev/null
   done
 }
 
@@ -325,10 +327,14 @@ chk_forbidden() {
 }
 
 # XAUTOCLAIM and XNACK belong to other patterns / post #1 — out of scope by the brief.
-# Scans the published content only: this harness names both commands to forbid them.
+# Scans authored content only: this harness names both commands in order to forbid them, and the
+# clients we depend on ship their own XAUTOCLAIM/XNACK implementations under node_modules, .venv,
+# target and bin — vendored code is not the post.
 chk_no_xautoclaim() {
   local hits
-  hits=$(grep -rloE 'XAUTOCLAIM|XNACK' "$INDEX" "$SCRIPT_DIR/samples" 2>/dev/null | tr '\n' ' ')
+  hits=$(grep -rloE 'XAUTOCLAIM|XNACK' "$INDEX" "$SCRIPT_DIR/samples" 2>/dev/null \
+    --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=target \
+    --exclude-dir=bin --exclude-dir=obj | tr '\n' ' ')
   if [ -n "$hits" ]; then
     ko chk_no_xautoclaim "$hits"
   else
@@ -370,12 +376,12 @@ chk_recovery
 # take it via -Dexec.args / after the script name — go through `sh -c … _` to place it.
 # The "$1" must be expanded by that inner sh, not here, hence the single quotes.
 # shellcheck disable=SC2016
-chk_sample java mvn sh -c 'mvn -q -DskipTests compile exec:java -Dexec.args="$1"' _
+chk_sample java mvn sh -c 'mvn -q compile exec:java -Dexec.args="$1"' _
 chk_sample python uv uv run work_queue_worker.py
 # shellcheck disable=SC2016
 chk_sample node npm sh -c 'npm install --silent >/dev/null 2>&1 && node work-queue-worker.mjs "$1"' _
 chk_sample go go go run .
-chk_sample csharp dotnet dotnet run --nologo -v q --
+chk_sample csharp dotnet dotnet run --
 chk_sample rust cargo cargo run -q --
 chk_wordcount
 chk_links

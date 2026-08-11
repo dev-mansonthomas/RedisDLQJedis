@@ -1,0 +1,10 @@
+{
+  "name": "work-queue-worker",
+  "version": "1.0.0",
+  "description": "Competing-consumers worker for the Work Queue blog post",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "redis": "^6.2.1"
+  }
+}

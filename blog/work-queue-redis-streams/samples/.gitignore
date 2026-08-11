@@ -1,0 +1,22 @@
+# Build artifacts from the language samples — never commit these.
+# (bin/ and target/ are already covered by the repo-root .gitignore; listed
+#  here too so this samples tree is self-documenting.)
+
+# Go: `go build`/`go run .` drops the compiled binary in the package dir
+go/work-queue-worker
+
+# C#: NuGet restore + build output
+csharp/obj/
+csharp/bin/
+
+# Rust: cargo build output
+rust/target/
+
+# Node: installed dependencies (restored via `npm install`)
+node/node_modules/
+
+# Python: uv virtualenv (restored via `uv run`/`uv sync`)
+python/.venv/
+
+# Java: Maven build output
+java/target/
