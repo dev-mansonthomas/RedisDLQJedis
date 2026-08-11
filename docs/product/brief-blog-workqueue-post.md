@@ -128,8 +128,12 @@ apprendre, tout le contenu neuf est dans la topologie et le dimensionnement.
   Audit de cohérence → docs corrigées → endpoints add/remove/kill worker + dé-hardcodage des done
   streams → page `/work-queue` dynamique → diagramme mermaid corrigé → tests d'intégration
   (un worker tué avec un job en PEL → le job est repris, pas perdu).
-- **Slice B — le post anglais.** `setup.sh` → walkthrough `redis-cli` vérifié → 6 samples exécutés
-  → schéma → prose 1600-1900 mots → `verify.sh` vert.
+- **Slice B — le post anglais.** Spec écrite : [`blog-workqueue-post.md`](../specs/blog-workqueue-post.md).
+  `setup.sh` → walkthrough `redis-cli` vérifié → 6 samples exécutés → schéma → prose 1600-1900 mots
+  → `verify.sh` vert. Deux décisions de l'auteur (2026-08-11) y sont figées : les samples sont des
+  **workers en boucle** (sortie déterministe via `SAMPLE_EXIT_AFTER_IDLE_POLLS`), et le post épingle
+  les timings du preset **`SLOW`** de la démo (work 2000 ms / `minIdle` 5000 ms) — le `minIdle=100 ms`
+  annoncé plus haut **n'existe plus** depuis la slice A.
 - **Slice C — version française** (`index.fr.md`), après validation de l'anglais.
 
 ## Next step
