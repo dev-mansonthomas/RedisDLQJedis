@@ -35,6 +35,10 @@ public abstract class AbstractRedisIntegrationTest {
     private static String containerId;
     protected static JedisPool jedisPool;
 
+    /** Host/port of the throwaway container, for tests that need their own pool (e.g. a larger one). */
+    protected static final String REDIS_HOST = "127.0.0.1";
+    protected static int redisPort;
+
     @BeforeAll
     static void startRedis() {
         assumeTrue(dockerAvailable(), "Docker is not available; skipping Redis integration tests");
@@ -43,8 +47,8 @@ public abstract class AbstractRedisIntegrationTest {
         containerId = run("docker", "run", "-d", "--rm", "-p", "127.0.0.1::6379", IMAGE);
         assumeTrue(containerId != null && !containerId.isBlank(), "Could not start Redis container");
 
-        int port = mappedPort(containerId);
-        jedisPool = new JedisPool("127.0.0.1", port);
+        redisPort = mappedPort(containerId);
+        jedisPool = new JedisPool(REDIS_HOST, redisPort);
         awaitReady(Duration.ofSeconds(30));
     }
 
