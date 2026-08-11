@@ -10,43 +10,47 @@ export interface DiagramDefinition {
 })
 export class DiagramDefinitionsService {
 
+  // Worker nodes are labelled 1, 2, N (plus an ellipsis) rather than a fixed count: the pool is
+  // adjustable at runtime (1..8), so a numbered diagram would be wrong as soon as it is changed.
   readonly workQueue: DiagramDefinition = {
     architecture: `flowchart TB
     subgraph Producers["🏭 Producers"]
         P1["Producer"]
     end
     subgraph Redis["🔴 Redis"]
-        JS[("📥 jobs.workqueue.v1<br/>Stream")]
-        DLQ[("⚠️ jobs.workqueue.v1:dlq<br/>Dead Letter Queue")]
+        JS[("📥 jobs.imageProcessing.v1<br/>Stream")]
+        DLQ[("⚠️ jobs.imageProcessing.v1:dlq<br/>Dead Letter Queue")]
         LUA["📜 Lua<br/>read_claim_or_dlq"]
-        LUA -->|XREADGROUP<br/>job-queue-group| JS
+        LUA -->|XREADGROUP<br/>jobs-group| JS
         LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
     end
-    subgraph Workers["⚙️ Workers"]
+    subgraph Workers["⚙️ Workers (1..8, adjustable)"]
         W1["Worker 1"]
         W2["Worker 2"]
-        W3["Worker 3"]
+        WE["⋯"]
+        WN["Worker N"]
     end
     subgraph Done["✅ Done Streams"]
-        D1[("worker1.done")]
-        D2[("worker2.done")]
-        D3[("worker3.done")]
+        D1[("jobs.done.worker-1")]
+        D2[("jobs.done.worker-2")]
+        DE["⋯"]
+        DN[("jobs.done.worker-N")]
     end
     P1 -->|XADD| JS
     W1 -->|"poll<br/>FCALL"| LUA
     W2 -->|"poll<br/>FCALL"| LUA
-    W3 -->|"poll<br/>FCALL"| LUA
+    WN -->|"poll<br/>FCALL"| LUA
     W1 -->|XADD| D1
     W2 -->|XADD| D2
-    W3 -->|XADD| D3
+    WN -->|XADD| DN
     style Redis fill:#dc382d,color:#fff
     style JS fill:#3498db,color:#fff
     style DLQ fill:#6b7280,color:#fff
     style LUA fill:#f39c12,color:#000`,
     sequence: `sequenceDiagram
     participant P as Producer
-    participant R as Redis Stream
-    participant LUA as Lua Function
+    participant R as jobs.imageProcessing.v1
+    participant LUA as Lua read_claim_or_dlq
     participant W1 as Worker 1
     participant W2 as Worker 2
     P->>R: XADD job1
@@ -55,8 +59,11 @@ export class DiagramDefinitionsService {
     LUA-->>W1: job1
     W2->>LUA: FCALL read_claim_or_dlq
     LUA-->>W2: job2
-    W1->>R: XACK job1
-    W2->>R: XACK job2`
+    W1->>R: XADD done + XACK job1
+    Note over W2: worker killed before XACK
+    W1->>LUA: FCALL (next poll)
+    LUA-->>W1: job2 reclaimed (idle > minIdle)
+    W1->>R: XADD done + XACK job2`
   };
 
   readonly fanOut: DiagramDefinition = {

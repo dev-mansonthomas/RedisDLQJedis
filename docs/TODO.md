@@ -25,10 +25,20 @@
 - 🟡 **XNACK via raw `Jedis.sendCommand`** (`DLQMessagingService.XnackCommand`) — no typed API in
   any stable Jedis (only 8.0.0-beta1, which also lacks `RETRYCOUNT`/`FORCE`). → Adopt
   `jedis.xnack(...)` when Jedis 8 goes GA (added 2026-07-09, ADR-0011).
-- 🟠 **No automated tests exist** — `src/test` is absent and there are no `*.spec.ts`. The "Running
-  Tests" section of `augmentcode/startup_instructions.md` is aspirational. → Add at least smoke tests
-  per pattern service and a few component specs. *(Partially outdated: backend now has 55 tests —
-  LLM Chat + DLQ/XNACK; frontend still has none.)*
+- 🟠 **No frontend test runner** — `angular.json` has no `test` target (only `build`/`lint`/`serve`), so
+  `npm test` fails, and there are **0 `*.spec.ts`**. Consequence: pure logic gets verified by driving a
+  real browser (`computeRate()`, the "max 4 columns" grid rule) instead of by unit test. Good news
+  (verified 2026-08-04): `@angular/build@21.0.0` is already installed and ships a `unit-test` builder
+  whose default runner is Vitest, and it generates the TestBed bootstrap itself — so it is `npm i -D
+  vitest jsdom` plus a 1-line target. → Full plan, traps and effort:
+  [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md).
+  *(Backend side is done: 93 tests as of 2026-08-04 — LLM Chat + DLQ/XNACK + work queue. The "Running
+  Tests" section of `augmentcode/startup_instructions.md` remains aspirational.)*
+- 🟠 **No CI at all** — no `.github/` directory, so nothing enforces tests, lint or build on a PR, and the
+  `git-pr-merge` flow waits on a CI that does not exist. → A workflow running `mvn clean test` +
+  `npm run lint` + `npm test`; note the Redis integration tests **skip** without Docker, so a runner
+  without Docker would go green while testing almost nothing. See
+  [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) ("Adjacent, not included").
 - 🟠 **Frontend lint: 76 errors** (`npm run lint`). Dominant categories: `@angular-eslint/template/
   label-has-associated-control`, `click-events-have-key-events` / `interactive-supports-focus`
   (a11y), `@typescript-eslint/no-explicit-any`, `@angular-eslint/no-empty-lifecycle-method`.
@@ -69,6 +79,39 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
 - 🟡 The in-flight mermaid feature repeats the same `diagrams = inject(DiagramDefinitionsService)`
   + identical `<app-mermaid-diagram>` block across ~11 components. Acceptable, but a shared wrapper
   or a small base could reduce duplication.
+
+## Found while implementing the dynamic worker pool (2026-07-31, slice A of blog post #2)
+
+- ✅ **`minIdle` had zero safety margin in the Work Queue — fixed 2026-08-03 by the demo-mode presets.**
+  `WorkQueueService` used `MIN_IDLE_MS = 100` with a 100 ms simulated processing time, so a *free* worker
+  claimed jobs its busy peer was still processing and they ran **twice, silently** — no error, empty PEL,
+  empty DLQ. The 100/100 pair was **not** in fact safe: measured on the running page, **120 of 266**
+  completed jobs were duplicated (386 done entries for 266 unique `jobId`s across the 4 done streams).
+  Fix: timing is now a `WorkQueueService.DemoMode` preset (`SLOW` 2000/5000 ms, `FAST` 50/500 ms) whose
+  constructor enforces `minIdleMs >= 2 * workMs`. Guards: `WorkQueueDemoModeTest` (no Redis, so it never
+  skips) + `WorkQueueScalingIntegrationTest#neitherShippedModeLetsAFreeWorkerStealAnInFlightJob`; the
+  failure mode stays characterized by `…#aFreeWorkerStealsAnInFlightJobWhenProcessingExceedsMinIdle`.
+  Blog post #2 must still state the rule.
+- 🟠 **The same duplication risk is unaudited in the other claim-based patterns.** `TokenBucketService`
+  documents the `minIdle` rule for `XAUTOCLAIM` but its numbers were never checked against its simulated
+  work time, and neither was the LLM Chat recovery sweeper's. → Measure both the way the work queue was
+  measured (count unique vs total entries in the output streams after a run).
+- 🟡 **`@CrossOrigin(origins = "*")` on `WorkQueueController`** contradicts the `CorsConfig`
+  allow-list documented in `CLAUDE.md`. Other pattern controllers may carry the same annotation.
+  → Cross-cutting security decision, deliberately out of scope for that slice.
+- 🟡 **`fanOut` diagram hard-codes 3 workers** in `diagram-definitions.service.ts` (the `workQueue`
+  one was fixed in this slice, along with its wrong stream/group names). → Fix when the fan-out post
+  is written.
+- 🟡 **The input stream viewer empties itself while the stream still holds the entries** — surfaced by
+  the manual pass on 2026-08-11 (`./launch-docker.sh --build`, burst of 200): the Job Stream panel
+  showed `0 of 199 messages` plus a `... 189 more messages ...` spacer while `XLEN
+  jobs.imageProcessing.v1` was 200. Cause: on success `WorkQueueService.processMessage` broadcasts a
+  `MESSAGE_DELETED` event (pre-existing, commit `c21fcfe`) although the job is only `XACK`ed — never
+  `XDEL`ed — so `stream-viewer` drops the row from `displayedMessages` while `totalMessages` keeps the
+  real count. Cosmetic and **pre-existing**, but the burst makes it obvious. → Either stop lying in the
+  event (rename to `MESSAGE_ACKED` and leave the row) or have the viewer decrement `totalMessages`.
+  Deliberately not fixed with the dynamic-workers slice: `stream-viewer` is shared by all 12 patterns
+  and that spec guards it as untouched.
 
 ## Code review & security
 

@@ -34,14 +34,20 @@ observability over hardening.
 - **Frontend locally:** `cd frontend && npm ci && npm start` (VM runs **Node 24.16**, npm 11). `npm ci` is
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
-  0 errors, 5 cosmetic warnings (long line / trailing whitespace).
-- **Backend tests:** `mvn test` — 55 tests: LLM Chat (#12, the first tests) + DLQ/XNACK
-  (`DLQXnackIntegrationTest`, `DLQProcessControllerTest`). Integration tests use a real Redis (8.8) started via the **docker
-  CLI** (`support/AbstractRedisIntegrationTest`), not Testcontainers — the bundled docker-java
-  negotiates Docker API v1.32, which this engine (min v1.40) rejects. Tests **skip** (not fail) when
-  Docker is unavailable. No other pattern has tests yet.
-- **Frontend tests:** still none (no runner configured — `ng test` has no builder). See `docs/TODO.md`.
-- **Lint:** `cd frontend && npm run lint` → ~78 pre-existing errors in older components (see
+  0 errors, 1 cosmetic warning (long line) — measured 2026-07-31.
+- **Backend tests:** `mvn clean test` — **93 tests**: LLM Chat (#12) + DLQ/XNACK
+  (`DLQXnackIntegrationTest`, `DLQProcessControllerTest`) + Work Queue worker pool & demo modes
+  (`WorkQueueScalingIntegrationTest`, `WorkQueueWorkersControllerTest`, `WorkQueueDemoModeTest`).
+  Integration tests use a real
+  Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
+  Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
+  rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
+  run. The other 9 patterns have no tests yet.
+- **Frontend tests:** still none — `angular.json` has no `test` target, so `ng test` has no builder. The
+  `@angular/build:unit-test` builder (Vitest) is *already installed* as a transitive dep; setup is a
+  1-line target + `npm i -D vitest jsdom`. Plan, traps and effort:
+  [`docs/specs/frontend-test-runner.md`](docs/specs/frontend-test-runner.md).
+- **Lint:** `cd frontend && npm run lint` → 76 pre-existing errors in older components (see
   `docs/TODO.md`); the `llm-chat` component/service are lint-clean.
 
 ## Layout
@@ -61,7 +67,7 @@ observability over hardening.
 | `/dlq` | Dead Letter Queue | Streams + Consumer Groups + Lua; **XNACK explicit failure** (Redis 8.8): `FAIL` = immediate retry (budget kept), `FATAL` = poison → DLQ next poll (counter = Long.MAX), `SILENT` = budget refunded. `POST /process {outcome}` (legacy `{shouldSucceed}` still mapped) | `test-stream`, `test-stream:dlq` |
 | `/pubsub` | Publish/Subscribe (QoS0) | Pub/Sub channels | `fire-and-forget` |
 | `/request-reply` | Request/Reply | Streams + keyspace-expiry timeout | `order.holdInventory.v1(.response)` |
-| `/work-queue` | Work Queue (competing consumers) | Streams + 1 group, N workers | `jobs.imageProcessing.v1` |
+| `/work-queue` | Work Queue (competing consumers) | Streams + 1 group, **1-8 workers adjustable at runtime** (4 at startup, in-memory); `POST`/`DELETE /workers` (`?kill=true` leaves the in-flight job PENDING — crash-recovery demo, never `XGROUP DELCONSUMER`); **`PUT /demo-mode?mode=SLOW\|FAST`** retimes the running pool (work time + `minIdle` + poll, `FAST` at startup); `POST /produce/burst?count=N` (pipelined `XADD`) builds the backlog the UI's jobs/s counter needs — the steady producer alone never does | `jobs.imageProcessing.v1`, `jobs.done.worker-{1..N}` |
 | `/fan-out` | Fan-Out (broadcast) | Streams + **N groups** | `fanout.events.v1` |
 | `/topic-routing` | Topic Routing (stream) | Lua `route_message` + rule hashes | `events.topic.v1` → `events.*` |
 | `/pubsub-topic-routing` | Topic Routing (Pub/Sub) | `PSUBSCRIBE` patterns | `order.<region>.<event>` |
@@ -86,6 +92,11 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   released messages — only the claim path does (`read_claim_or_dlq` uses `CLAIM`, unchanged).
   JSON precision: `Long.MAX` rounds in JS — the UI detects poison by threshold
   (`>= Number.MAX_SAFE_INTEGER`), never equality.
+- **`minIdle` must outlast the simulated work time in every claim-based pattern.** If it doesn't, a free
+  worker claims a job its busy peer is still processing and the job runs **twice, silently** (no error,
+  empty PEL, empty DLQ). The work queue shipped 100 ms / 100 ms and duplicated **120 of 266** completed
+  jobs in a live run; its `DemoMode` presets now enforce `minIdleMs >= 2 * workMs`. Token Bucket and the
+  LLM Chat sweeper are **unaudited** for this — see `docs/TODO.md`.
 - **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
   Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
   corrupted classes (`ClassFormatError: Truncated class file`).
