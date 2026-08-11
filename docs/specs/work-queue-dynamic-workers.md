@@ -100,21 +100,19 @@ Testable criteria — **all verified 2026-08-11** (`mvn clean test`: 93/93, 0 sk
       shows **no new** errors versus the pre-change baseline (record the baseline count first —
       ~78 pre-existing per `CLAUDE.md`); `cd frontend && npm run build` succeeds.
       → 2026-08-11: `mvn clean test` **93/93, 0 skipped**; lint **72 errors** (below the ~76-78
-      baseline, so no new ones); `luacheck` 0 errors / 1 cosmetic warning, proving no Lua was touched.
-      `npm run build` is **green as of the last run before this branch's final docs pass** — see the
-      caveat below.
+      baseline, so no new ones); `luacheck` 0 errors / 1 cosmetic warning, proving no Lua was touched;
+      **`npm run build` exit 0**, 0 errors, bundle generated in 14.9 s (initial total 397.82 kB /
+      110.70 kB transferred). Only the pre-existing non-ESM warnings (`sockjs-client`, `langium`).
 
-> **Build-gate caveat (2026-08-11).** `npm run build` could not be re-run to completion in the VM
-> that day: with an unrelated Redis Enterprise container (`rec1`, 1.5 GiB) up, only ~1.5 GB of the
-> 7.9 GB was free, the build process climbed to ~1.1 GB and the kernel OOM-killed it (`Killed`, no
-> Angular error). Reproduced 3× including with `NG_BUILD_MAX_WORKERS=1` and
-> `--max-old-space-size=1100`, and measured (`avail` fell to 26 MB). This is an environment limit,
-> not a code defect. Substituted two memory-light gates that cover the compile step the build would
-> have exercised, both **exit 0**: `npx tsc -p tsconfig.app.json --noEmit` (TypeScript) and
-> `npx ngc -p tsconfig.app.json --noEmit` (**Angular AOT — type-checks the templates too**, which
-> lint does not). What stays unverified is only bundling/optimization.
-> **Re-run `npm run build` before merge** once the RAM is free (`docker stop rec1`, build,
-> `docker start rec1`).
+> **Note — how the build gate was reached (2026-08-11).** The build first died three times with a bare
+> `Killed`: an unrelated Redis Enterprise container in the VM (`rec1`, 1.5 GiB) left only ~1.5 GB of
+> 7.9 GB free, the build climbed to ~1.1 GB and the kernel OOM-killed it (measured: `avail` fell to
+> 26 MB; also reproduced with `NG_BUILD_MAX_WORKERS=1` and `--max-old-space-size=1100`). `docker stop
+> rec1` freed 5.9 GB and the build then passed unchanged. **A bare `Killed` from `ng build` in this VM
+> is a memory symptom, not a code error** — check `free -m` and `docker stats` before debugging the
+> app. Also worth keeping: `npx tsc -p tsconfig.app.json --noEmit` and
+> `npx ngc -p tsconfig.app.json --noEmit` (Angular AOT — **type-checks the templates**, which lint
+> does not) are memory-light stand-ins, both exit 0 here.
 
 ## Inputs & outputs
 
