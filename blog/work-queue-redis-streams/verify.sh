@@ -23,6 +23,7 @@ STREAM="jobs.imageProcessing.v1"
 GROUP="jobs-group"
 DLQ="jobs.imageProcessing.v1:dlq"
 TAG="blog-workqueue-v1"
+PREV_TAG="blog-dlq-v1" # post #1, already published on its own tag
 
 PASS=0
 FAIL=0
@@ -290,18 +291,25 @@ chk_links() {
     ko chk_links "index.md missing"
     return
   fi
-  local rc=0 detail="" url path
+  local rc=0 detail="" url path tag
   while IFS= read -r url; do
     case "$url" in
       */blob/* | */tree/*)
+        # Deep links must be pinned on this post's tag — except links into post #1, which are
+        # legitimately pinned on ITS already-published tag. Anything on a branch is a bug: main
+        # moves, and a published article's line numbers must not.
+        tag=""
         case "$url" in
-          *"/$TAG/"*) ;;
+          *"/$TAG/"*) tag="$TAG" ;;
+          *"/$PREV_TAG/"*) tag="$PREV_TAG" ;;
           *) rc=1; detail="$detail not pinned: $url" ;;
         esac
-        path=$(sed -E "s#.*/(blob|tree)/$TAG/##; s/#.*$//" <<<"$url")
-        if [ -n "$path" ] && [ ! -e "$REPO_ROOT/$path" ]; then
-          rc=1
-          detail="$detail missing path: $path"
+        if [ -n "$tag" ]; then
+          path=$(sed -E "s#.*/(blob|tree)/$tag/##; s/#.*$//" <<<"$url")
+          if [ -n "$path" ] && [ ! -e "$REPO_ROOT/$path" ]; then
+            rc=1
+            detail="$detail missing path: $path"
+          fi
         fi
         ;;
     esac

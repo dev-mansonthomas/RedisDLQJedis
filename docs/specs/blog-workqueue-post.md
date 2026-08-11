@@ -57,46 +57,53 @@ The French version is slice C (`index.fr.md`) — not this spec.
 - As a polyglot dev, I can run the worker of my language twice in two terminals with one documented
   command each and watch the distribution happen.
 
-Testable criteria — each is a named check in `blog/work-queue-redis-streams/verify.sh`:
+Testable criteria — each is a named check in `blog/work-queue-redis-streams/verify.sh`.
+**All 17 checks green on 2026-08-11** (`./blog/work-queue-redis-streams/verify.sh` → `17 passed, 0
+failed`), alongside `luacheck` 0 errors and `mvn clean test` 93/93, 0 skipped — the pair that proves
+the post required no demo or Lua change.
 
-- [ ] `chk_shellcheck` — `shellcheck` on `samples/setup.sh` and on `verify.sh` → 0 findings.
-- [ ] `chk_setup` — on a fresh `redis:8.8-alpine`, `samples/setup.sh` run **twice** exits 0 both
+- [x] `chk_shellcheck` — `shellcheck` on `samples/setup.sh` and on `verify.sh` → 0 findings.
+- [x] `chk_setup` — on a fresh `redis:8.8-alpine`, `samples/setup.sh` run **twice** exits 0 both
       times (idempotent), and afterwards `FUNCTION LIST LIBRARYNAME stream_utils` is non-empty and
       `XINFO GROUPS jobs.imageProcessing.v1` lists `jobs-group`.
-- [ ] `chk_walkthrough` — every `` ```bash `` block between `<!-- verify:begin -->` /
+- [x] `chk_walkthrough` — every `` ```bash `` block between `<!-- verify:begin -->` /
       `<!-- verify:end -->` markers in `index.md`, replayed **in document order, verbatim, in one
       shell** (with `redis-cli` rewritten to the harness port), exits 0 and leaves the end state the
       post claims: `XPENDING jobs.imageProcessing.v1 jobs-group` summary count is `0` and
       `XLEN jobs.imageProcessing.v1:dlq` is `1`.
-- [ ] `chk_distribution` — inside that replay, two different consumer names reading the same group
+- [x] `chk_distribution` — inside that replay, two different consumer names reading the same group
       receive **disjoint** entry ids, and the union equals the produced set (no entry delivered
       twice, none skipped). Asserted on ids, never on how the split happened to fall.
-- [ ] `chk_recovery` — inside that replay: an entry read as `worker-2` and left un-ACKed is, after
+- [x] `chk_recovery` — inside that replay: an entry read as `worker-2` and left un-ACKed is, after
       `minIdle` has elapsed, returned by a `FCALL read_claim_or_dlq` issued as `worker-1`, and
       `XINFO CONSUMERS jobs.imageProcessing.v1 jobs-group` **still lists `worker-2`** (proof the post
       never tells the reader to `XGROUP DELCONSUMER`).
-- [ ] `chk_sample_<lang>` for **java, python, node, go, csharp, rust** — with
+- [x] `chk_sample_<lang>` for **java, python, node, go, csharp, rust** — with
       `SAMPLE_EXIT_AFTER_IDLE_POLLS=3` set, the documented one-liner exits **0** on its own, and its
       stdout shows (a) at least one `job … done` line naming the consumer it was passed and (b) a
       `no new jobs` line before it exits. Then: two instances of the **same** sample started with
       different consumer names against a 10-job backlog together drain it, each printing ≥ 1 job,
       with `XPENDING` back to 0 and **no `jobId` completed twice** (union of `jobs.done.worker-*`).
-- [ ] `chk_wordcount` — prose word count of `index.md` (fenced code blocks and URLs excluded) is
+- [x] `chk_wordcount` — prose word count of `index.md` (fenced code blocks and URLs excluded) is
       **1600–1900**.
-- [ ] `chk_links` — every `github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/(blob|tree)/…`
+- [x] `chk_links` — every `github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/(blob|tree)/…`
       URL in `index.md` is pinned on **`blog-workqueue-v1`** and its path exists in the working tree.
-- [ ] `chk_forbidden` — `websocket|sockjs|angular|spring` appears nowhere in the prose (fenced blocks
+      **Amended 2026-08-11**: links *into post #1* are pinned on **its** already-published tag
+      (`blog-dlq-v1`), so the check accepts either tag and rejects anything on a branch. The first
+      version of the check failed the post's own back-reference, which was a harness bug, not a
+      content error.
+- [x] `chk_forbidden` — `websocket|sockjs|angular|spring` appears nowhere in the prose (fenced blocks
       stripped, and the closing "see it live" section wrapped in
       `<!-- forbidden-exempt:begin/end -->` as post #1 does).
-- [ ] `chk_img` — `img/work-queue-flow.png` exists and `index.md` references it as
+- [x] `chk_img` — `img/work-queue-flow.png` exists and `index.md` references it as
       `![<alt text>](img/work-queue-flow.png)` with non-empty alt text.
-- [ ] `chk_coherence` — the timing numbers the post pins are the demo's own: the post's prose
+- [x] `chk_coherence` — the timing numbers the post pins are the demo's own: the post's prose
       contains `2000` (work) and `5000` (`minIdle`) **and** `WorkQueueService.java` still declares
       `SLOW("Slow", 2000, 5000, …)`. Fails loudly if either side moves — this is the drift guard the
       series brief asks for.
-- [ ] `chk_no_xautoclaim` — neither `index.md` nor any sample mentions `XAUTOCLAIM` or `XNACK`
+- [x] `chk_no_xautoclaim` — neither `index.md` nor any sample mentions `XAUTOCLAIM` or `XNACK`
       (out of scope by the brief: they belong to other patterns / post #1).
-- [ ] `mvn clean test` still green and `luacheck lua/ --globals redis cjson cmsgpack bit` still 0
+- [x] `mvn clean test` still green and `luacheck lua/ --globals redis cjson cmsgpack bit` still 0
       errors — proves the post required no demo or Lua change.
 
 ## Inputs & outputs
