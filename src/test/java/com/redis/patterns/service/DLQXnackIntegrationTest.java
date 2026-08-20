@@ -9,11 +9,10 @@ import com.redis.patterns.dto.ProcessOutcome;
 import com.redis.patterns.support.AbstractRedisIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import redis.clients.jedis.args.XNackMode;
 import redis.clients.jedis.StreamEntryID;
-import redis.clients.jedis.commands.ProtocolCommand;
 import redis.clients.jedis.params.XAddParams;
 import redis.clients.jedis.params.XReadGroupParams;
-import redis.clients.jedis.util.SafeEncoder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,13 +35,6 @@ class DLQXnackIntegrationTest extends AbstractRedisIntegrationTest {
     private static final String DLQ_STREAM = "test-stream:dlq";
     private static final String GROUP = "test-group";
     private static final String CONSUMER = "consumer-1";
-
-    /** Test-local raw command until/unless a stable Jedis ships typed XNACK support. */
-    private enum TestCommand implements ProtocolCommand {
-        XNACK;
-        private final byte[] raw = SafeEncoder.encode(name());
-        @Override public byte[] getRaw() { return raw; }
-    }
 
     private DLQMessagingService service;
     private DLQConfigService configService;
@@ -76,8 +68,7 @@ class DLQXnackIntegrationTest extends AbstractRedisIntegrationTest {
 
     private long xnack(String mode, String id) {
         try (var jedis = jedisPool.getResource()) {
-            return (Long) jedis.sendCommand(TestCommand.XNACK,
-                    STREAM, GROUP, mode, "IDS", "1", id);
+            return jedis.xnack(STREAM, GROUP, XNackMode.valueOf(mode), new StreamEntryID(id));
         }
     }
 
@@ -212,7 +203,7 @@ class DLQXnackIntegrationTest extends AbstractRedisIntegrationTest {
             jedis.xack(STREAM, GROUP, new StreamEntryID(id));
         }
 
-        assertThat(service.xnack(STREAM, GROUP, "FAIL", id)).isZero();
+        assertThat(service.xnack(STREAM, GROUP, XNackMode.FAIL, id)).isZero();
     }
 
     @Test

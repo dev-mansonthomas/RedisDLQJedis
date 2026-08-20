@@ -12,11 +12,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
-import redis.clients.jedis.commands.ProtocolCommand;
+import redis.clients.jedis.args.XNackMode;
 import redis.clients.jedis.params.XAddParams;
 import redis.clients.jedis.params.XReadGroupParams;
 import redis.clients.jedis.resps.StreamEntry;
-import redis.clients.jedis.util.SafeEncoder;
 
 import java.util.*;
 
@@ -867,7 +866,7 @@ public class DLQMessagingService {
                 log.info("Message {} not acknowledged - will be retried", message.getId());
             } else {
                 // Explicit release via XNACK (Redis 8.8+): immediate, no minIdle wait
-                String mode = outcome.xnackMode();
+                XNackMode mode = outcome.xnackMode();
                 long released = xnack(params.getStreamName(), params.getConsumerGroup(), mode, message.getId());
 
                 if (released == 0) {
@@ -927,24 +926,17 @@ public class DLQMessagingService {
     /**
      * Releases a pending message back to the group's PEL via XNACK (Redis 8.8+).
      *
-     * <p>Raw command: no stable Jedis release has a typed {@code xnack()} yet (only 8.0.0-beta1,
-     * which also lacks RETRYCOUNT/FORCE). Package-private for tests.
+     * <p>Typed since Jedis 8.0.0; before that this went through a raw {@code sendCommand}.
+     * Jedis still has no typed {@code RETRYCOUNT}/{@code FORCE}, which this demo does not use.
+     * Package-private for tests.
      *
-     * @param mode XNACK mode token: {@code FAIL}, {@code FATAL} or {@code SILENT}
+     * @param mode {@link XNackMode#FAIL}, {@link XNackMode#FATAL} or {@link XNackMode#SILENT}
      * @return number of messages actually released (0 if the id was not pending)
      */
-    long xnack(String streamName, String groupName, String mode, String messageId) {
+    long xnack(String streamName, String groupName, XNackMode mode, String messageId) {
         try (var jedis = jedisPool.getResource()) {
-            return (Long) jedis.sendCommand(XnackCommand.XNACK,
-                streamName, groupName, mode, "IDS", "1", messageId);
+            return jedis.xnack(streamName, groupName, mode, new StreamEntryID(messageId));
         }
-    }
-
-    /** XNACK is not in Jedis' {@code Protocol.Command} yet — minimal raw-command carrier. */
-    private enum XnackCommand implements ProtocolCommand {
-        XNACK;
-        private final byte[] raw = SafeEncoder.encode(name());
-        @Override public byte[] getRaw() { return raw; }
     }
 
     /**
