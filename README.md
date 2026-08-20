@@ -76,15 +76,24 @@ cd redis-messaging-patterns
 ### Docker Commands
 
 ```bash
-# Start all services (build + logs)
+# Start all services (build + logs) -- ALWAYS starts from an empty Redis
 ./launch-docker.sh
+
+# Same, but keep the previous run's Redis data
+./launch-docker.sh --keep-data
 
 # Stop all services
 ./stop-docker.sh
 
-# Clean up (remove containers, images, volumes)
+# Clean up (remove containers, images)
 ./clean-docker.sh
 ```
+
+> **Every launch starts from an empty Redis.** This is a demo: keeping data between two runs only
+> makes the Redis side harder to read. Redis runs with no volume and no persistence
+> (`--save "" --appendonly no`), and `launch-docker.sh` also runs `FLUSHALL` *before* the backend
+> starts -- so relaunching over an already-running stack is clean too. Pass `--keep-data` if you
+> want to inspect what the previous run left behind.
 
 ### Manual Docker Compose
 
@@ -95,12 +104,13 @@ docker compose up -d --build
 # View logs
 docker compose logs -f
 
-# Stop services
+# Stop services (nothing persists: Redis has no volume)
 docker compose down
-
-# Stop and remove volumes
-docker compose down -v
 ```
+
+Starting the stack with plain `docker compose up -d` also gives you an empty Redis **as long as the
+Redis container is (re)created**. If it was already running, its keyspace is untouched -- that is
+exactly the gap `launch-docker.sh` closes with its `FLUSHALL` step.
 
 ---
 

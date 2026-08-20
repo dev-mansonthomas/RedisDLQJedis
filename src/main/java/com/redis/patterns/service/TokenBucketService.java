@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -85,6 +86,16 @@ public class TokenBucketService implements CommandLineRunner {
     private static final String ACQUIRE_TOKEN_FUNCTION = "acquire_token";
     private static final String RELEASE_TOKEN_FUNCTION = "release_token";
 
+    /**
+     * Stops the workers before Spring closes the {@link JedisPool} they borrow from.
+     */
+    @PreDestroy
+    void stopWorkers() {
+        log.info("Stopping token bucket workers");
+        shutdown.set(true);
+        workerRunning.values().forEach(flag -> flag.set(false));
+    }
+
     @Override
     public void run(String... args) throws Exception {
         initializeRedisStructures();
@@ -134,6 +145,9 @@ public class TokenBucketService implements CommandLineRunner {
                         Thread.currentThread().interrupt();
                         break;
                     } catch (Exception e) {
+                        // Shutting down: Spring closes the JedisPool before these worker
+                        // threads notice, so the pool error is expected, not a failure.
+                        if (shutdown.get()) break;
                         log.error("Worker-{} error: {}", workerId, e.getMessage(), e);
                     }
                 }

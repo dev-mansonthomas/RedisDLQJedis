@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -204,6 +205,9 @@ public class WorkQueueService implements CommandLineRunner {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these worker threads
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("Worker-{} error: {}", workerId, e.getMessage());
                 try {
                     Thread.sleep(1000); // Back off on error
@@ -418,6 +422,7 @@ public class WorkQueueService implements CommandLineRunner {
      * <p>The join matters: a worker parked in its processing sleep would otherwise keep consuming from
      * the stream after this method returns (which also broke test isolation before it was added).
      */
+    @PreDestroy
     public synchronized void stopWorkers() {
         log.info("Stopping all workers");
         shutdown.set(true);

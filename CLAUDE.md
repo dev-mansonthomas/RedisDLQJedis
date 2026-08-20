@@ -28,6 +28,11 @@ observability over hardening.
 
 - **Docker (only fully-working path in this VM):** `./launch-docker.sh --build`
   → frontend http://localhost:4200, backend http://localhost:8080/api, RedisInsight :5540.
+  **Every launch starts from an empty Redis** (ADR-0012): the container is ephemeral (no volume,
+  `--save "" --appendonly no`) *and* the script `FLUSHALL`s between `stop backend` and `up -d`, so
+  the groups are recreated against the empty keyspace. `--keep-data` opts out. RedisInsight connects
+  to host `redis-messaging-redis` (or `redis`), port 6379, no password — **not** `localhost`, which
+  inside that container is RedisInsight itself.
 - **Backend locally:** **Java 21 + Maven now installed in this VM** (Temurin/OpenJDK 21.0.11,
   Maven 3.9.16) — `mvn compile` / `mvn package` work directly. Docker remains the canonical path
   (multi-stage `Dockerfile`, `maven:3.9-eclipse-temurin-21-alpine`). Lua functions auto-load on startup.
@@ -107,8 +112,14 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Live UI updates** come from `RedisStreamListenerService` (one Virtual Thread per monitored
   stream, `XREAD BLOCK 1000`) broadcasting `DLQEvent`/`PubSubEvent` over WebSocket.
 - **Several services clear their demo streams on startup** (`@Order`-sequenced runners) for a clean slate.
-- **LLM Chat data is durable & reset-only:** unlike the other demo streams, LLM Chat does *not*
-  clear on startup. `LlmChatService.reset(cid)` is the **only** deleter — a surgical `DEL` of
+- **Redis keeps nothing between runs** (ADR-0012). Never flush under a running backend: `FLUSHALL`
+  drops the consumer groups, which are created **only** in the services' `CommandLineRunner`s (or by the
+  per-pattern `DELETE /api/<pattern>/clear`), so a live backend would then read groups that no longer
+  exist. Flush order is `stop backend` → flush → start backend. `FLUSHALL` does *not* remove the Lua
+  library (verified on redis:8.8).
+- **LLM Chat data is durable & reset-only *within a run*:** unlike the other demo streams, LLM Chat
+  does *not* clear on backend startup — but since ADR-0012 a **stack relaunch starts from an empty
+  Redis**, so the conversation survives a page reload, not a `./launch-docker.sh`. `LlmChatService.reset(cid)` is the **only** deleter — a surgical `DEL` of
   `chat:{cid}` + `:tok`/`:flags`/`:stats`/`:dlq` + `ts:{cid}:userTokens` (no `flushall`). The
   frontend persists the cid in `localStorage` (`redis-llm-chat-cid`) so a reload restores the chat.
 - **No auth** (by design — ADR-0008). **CORS and WebSocket origins are restricted to an explicit

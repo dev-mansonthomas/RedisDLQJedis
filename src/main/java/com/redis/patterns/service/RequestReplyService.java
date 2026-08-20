@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.DependsOn;
@@ -13,6 +14,7 @@ import redis.clients.jedis.StreamEntryID;
 import redis.clients.jedis.params.XReadGroupParams;
 import redis.clients.jedis.resps.StreamEntry;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.*;
 
 /**
@@ -34,6 +36,11 @@ public class RequestReplyService {
     private final JedisPool jedisPool;
     private final ObjectMapper objectMapper;
     private final WebSocketEventService webSocketEventService;
+
+    /** Flipped by {@link #stopListeners()} so the listeners stop before the pool closes. */
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
+    private Thread requestListenerThread;
+    private Thread responseListenerThread;
 
     private static final String REQUEST_STREAM = "order.holdInventory.v1";
     private static final String RESPONSE_STREAM = "order.holdInventory.response.v1";
@@ -125,7 +132,7 @@ public class RequestReplyService {
         // Start virtual threads OUTSIDE the try-with-resources to avoid closing Jedis connection
         try {
             log.info("[INIT] Starting request listener virtual thread...");
-            Thread.ofVirtual().name("request-listener").start(this::listenForRequests);
+            requestListenerThread = Thread.ofVirtual().name("request-listener").start(this::listenForRequests);
             log.info("[INIT] Started virtual thread to listen for requests on {}", REQUEST_STREAM);
         } catch (Exception e) {
             log.error("[INIT] Failed to start request listener thread", e);
@@ -133,10 +140,26 @@ public class RequestReplyService {
 
         try {
             log.info("[INIT] Starting response listener virtual thread...");
-            Thread.ofVirtual().name("response-listener").start(this::listenForResponses);
+            responseListenerThread = Thread.ofVirtual().name("response-listener").start(this::listenForResponses);
             log.info("[INIT] Started virtual thread to listen for responses on {}", RESPONSE_STREAM);
         } catch (Exception e) {
             log.error("[INIT] Failed to start response listener thread", e);
+        }
+    }
+
+    /**
+     * Stops both listeners before Spring closes the {@link JedisPool} they borrow from.
+     * They block up to 5s in XREADGROUP, hence the interrupt on top of the flag.
+     */
+    @PreDestroy
+    void stopListeners() {
+        log.info("[SHUTDOWN] Stopping request/response listeners");
+        shutdown.set(true);
+        if (requestListenerThread != null) {
+            requestListenerThread.interrupt();
+        }
+        if (responseListenerThread != null) {
+            responseListenerThread.interrupt();
         }
     }
 
@@ -148,7 +171,7 @@ public class RequestReplyService {
         log.info("[WORKER] Request listener started, waiting for requests on '{}'...", REQUEST_STREAM);
         log.info("[WORKER] Consumer group: '{}', Consumer name: '{}'", REQUEST_CONSUMER_GROUP, REQUEST_CONSUMER_NAME);
 
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!shutdown.get() && !Thread.currentThread().isInterrupted()) {
             try (var jedis = jedisPool.getResource()) {
                 // Use block(5000) to wait up to 5 seconds for new messages
                 // StreamEntryID.UNRECEIVED_ENTRY is the equivalent of ">" in Redis CLI
@@ -193,6 +216,9 @@ public class RequestReplyService {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these listeners
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("[WORKER] Error in request listener", e);
                 try {
                     Thread.sleep(1000);
@@ -229,7 +255,7 @@ public class RequestReplyService {
         log.info("[RESPONSE_PROCESSOR] Consumer group: '{}', Consumer name: '{}'", RESPONSE_CONSUMER_GROUP, RESPONSE_CONSUMER_NAME);
         log.info("[RESPONSE_PROCESSOR] Using read_claim_or_dlq with minIdle={}ms, maxDeliver={}", MIN_IDLE_TIME_MS, MAX_DELIVERY_COUNT);
 
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!shutdown.get() && !Thread.currentThread().isInterrupted()) {
             try (var jedis = jedisPool.getResource()) {
                 // Call Lua function: read_claim_or_dlq
                 // KEYS: [stream, dlq]
@@ -301,6 +327,9 @@ public class RequestReplyService {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these listeners
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("[RESPONSE_PROCESSOR] Error in response listener", e);
                 try {
                     Thread.sleep(1000);

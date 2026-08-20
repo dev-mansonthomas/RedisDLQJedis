@@ -1,5 +1,6 @@
 package com.redis.patterns.service;
 
+import jakarta.annotation.PreDestroy;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -55,6 +56,18 @@ public class ScheduledMessagesService implements CommandLineRunner {
         this.streamListenerService = streamListenerService;
     }
 
+    /**
+     * Stops the scheduler before Spring closes the {@link JedisPool} it borrows from.
+     */
+    @PreDestroy
+    void stopScheduler() {
+        log.info("Stopping scheduled-messages scheduler");
+        running.set(false);
+        if (schedulerThread != null) {
+            schedulerThread.interrupt();
+        }
+    }
+
     @Override
     public void run(String... args) throws Exception {
         log.info("=".repeat(60));
@@ -100,6 +113,9 @@ public class ScheduledMessagesService implements CommandLineRunner {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before this thread notices,
+                // so the resulting pool error is expected, not a failure.
+                if (!running.get()) break;
                 log.error("Error in scheduler loop", e);
             }
         }

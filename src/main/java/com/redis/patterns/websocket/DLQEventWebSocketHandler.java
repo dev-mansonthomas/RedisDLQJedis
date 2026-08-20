@@ -91,7 +91,12 @@ public class DLQEventWebSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void handleTransportError(@NonNull WebSocketSession session, @NonNull Throwable exception) throws Exception {
-        log.error("WebSocket transport error for session {}", session.getId(), exception);
+        if (webSocketEventService.isShuttingDown()) {
+            // Context closing: Spring tears the sessions down under us. Expected, not an incident.
+            log.debug("WebSocket transport error for session {} during shutdown", session.getId());
+        } else {
+            log.error("WebSocket transport error for session {}", session.getId(), exception);
+        }
         webSocketEventService.removeSession(session);
     }
 
