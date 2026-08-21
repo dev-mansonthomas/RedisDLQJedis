@@ -1,5 +1,6 @@
 package com.redis.patterns.service;
 
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -124,6 +125,9 @@ public class FanOutService implements CommandLineRunner {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these worker threads
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("FanOut-Worker-{} error: {}", workerId, e.getMessage());
                 try {
                     Thread.sleep(1000);
@@ -261,6 +265,7 @@ public class FanOutService implements CommandLineRunner {
     /**
      * Stop all workers.
      */
+    @PreDestroy
     public void stopWorkers() {
         log.info("Stopping all fan-out workers");
         shutdown.set(true);

@@ -6,7 +6,7 @@
 #   docker-compose up -d --build  # Rebuild and start
 #   docker-compose logs -f        # View logs
 #   docker-compose down           # Stop all services
-#   docker-compose down -v        # Stop and remove volumes
+#   docker-compose down           # Redis state is ephemeral: nothing to purge
 # =============================================================================
 
 services:
@@ -18,9 +18,10 @@ services:
     container_name: redis-messaging-redis
     ports:
       - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
+    # Ephemeral on purpose: this is a demo, every run starts from an empty keyspace.
+    # No volume, no AOF, no RDB snapshots -> nothing survives a container recreate.
+    # `launch-docker.sh` additionally FLUSHALLs when the stack is already running.
+    command: redis-server --save "" --appendonly no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -94,11 +95,4 @@ services:
 networks:
   redis-messaging-network:
     driver: bridge
-
-# =============================================================================
-# Volumes
-# =============================================================================
-volumes:
-  redis-data:
-    driver: local
 

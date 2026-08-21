@@ -123,6 +123,29 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
   Deliberately not fixed with the dynamic-workers slice: `stream-viewer` is shared by all 12 patterns
   and that spec guards it as untouched.
 
+## Found while making Redis ephemeral (2026-08-20, ADR-0012)
+
+- ✅ **Redis no longer keeps state between demo runs** — *done 2026-08-20*: no volume,
+  `--save "" --appendonly no`, and `launch-docker.sh` flushes between `stop backend` and `up -d`
+  (order matters — see ADR-0012). Measured on the running stack: `DBSIZE` 227 → 0, backend healthy,
+  `jobs-group` recreated with 4 consumers, 0 `ERROR` since restart. `--keep-data` opts out.
+- ✅ **`stop-docker.sh` / `clean-docker.sh` were broken in this VM** — *fixed 2026-08-20*: both called
+  the v1 binary `docker-compose`, which is not installed (compose v5.1.4 plugin only), so every
+  invocation died on "command not found". Now `docker compose`.
+- ✅ **Shutdown is silent again** — *done 2026-08-20*. The backend logged `Could not get a resource
+  from the pool` ERRORs on every stop: **no service had a `@PreDestroy`**, so Spring closed the
+  `JedisPool` while the worker Virtual Threads kept polling. Three services even declared an
+  `AtomicBoolean shutdown` that **nothing ever set** (`PerKeySerializedService`,
+  `ContentBasedRoutingService`, `TokenBucketService`), and `RequestReplyService` did not even keep a
+  reference to its two listener threads. Now: `@PreDestroy` on all 8 worker-owning services (new hooks,
+  or the annotation on the existing `stopWorkers()`/`shutdown()`), each generic `catch` breaking out
+  instead of logging when the flag is set, and `WebSocketEventService` dropping broadcasts once the
+  context closes (which also silenced the `WebSocket transport error` / `Failed to broadcast` pair that
+  surfaced underneath). Measured: **3 ERRORs → 0** on `docker compose stop backend`, 93 tests green.
+- 🟡 **The legacy `redismessagingpatternswithjedis_redis-data` volume is orphaned** — no longer
+  declared in compose, so `docker compose down` leaves it. → `./clean-docker.sh` (`down -v`) or
+  `docker volume rm redismessagingpatternswithjedis_redis-data`.
+
 ## Code review & security
 
 - ✅ **First full `/code-review`** (2026-06-29) — findings tracked in

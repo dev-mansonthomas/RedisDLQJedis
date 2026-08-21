@@ -8,7 +8,7 @@ set -e
 echo "🛑 Stopping Redis Messaging Patterns..."
 echo ""
 
-docker-compose down
+docker compose down
 
 echo ""
 echo "✅ All services stopped!"

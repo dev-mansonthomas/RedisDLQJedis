@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -99,6 +100,7 @@ public class RedisStreamListenerService implements CommandLineRunner {
     /**
      * Stops all monitors and shuts down the service.
      */
+    @PreDestroy
     public void shutdown() {
         log.info("Shutting down Redis Stream Listener Service");
         shutdown.set(true);

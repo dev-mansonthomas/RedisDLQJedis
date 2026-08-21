@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -51,6 +52,17 @@ public class PerKeySerializedService implements CommandLineRunner {
     // Worker management
     private final Map<Integer, AtomicBoolean> workerRunning = new ConcurrentHashMap<>();
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
+
+    /**
+     * Stops the workers before Spring closes the {@link JedisPool} they borrow from.
+     * Without this the loops kept polling a closed pool and logged spurious errors.
+     */
+    @PreDestroy
+    void stopWorkers() {
+        log.info("Stopping per-key workers");
+        shutdown.set(true);
+        workerRunning.values().forEach(flag -> flag.set(false));
+    }
 
     @Override
     public void run(String... args) {
@@ -115,6 +127,9 @@ public class PerKeySerializedService implements CommandLineRunner {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these worker threads
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("Per-key worker-{} error: {}", workerId, e.getMessage());
                 try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
             }

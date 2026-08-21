@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Clean Docker - Stop services, remove images and volumes
+# Clean Docker - Stop services, remove images (Redis state is ephemeral: no volume to purge)
 # =============================================================================
 
 set -e
@@ -8,9 +8,9 @@ set -e
 echo "🧹 Cleaning Redis Messaging Patterns Docker resources..."
 echo ""
 
-# Stop and remove containers, networks, and volumes
-echo "📦 Stopping and removing containers, networks, volumes..."
-docker-compose down -v --remove-orphans
+# Stop and remove containers, networks (-v also clears the legacy redis-data volume)
+echo "📦 Stopping and removing containers, networks..."
+docker compose down -v --remove-orphans
 
 # Remove project images
 echo ""

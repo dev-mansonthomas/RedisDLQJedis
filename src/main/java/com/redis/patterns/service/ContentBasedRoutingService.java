@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -54,6 +55,16 @@ public class ContentBasedRoutingService implements CommandLineRunner {
     // Router management
     private final AtomicBoolean routerRunning = new AtomicBoolean(false);
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
+
+    /**
+     * Stops the router before Spring closes the {@link JedisPool} it borrows from.
+     */
+    @PreDestroy
+    void stopRouter() {
+        log.info("Stopping content-based router");
+        shutdown.set(true);
+        routerRunning.set(false);
+    }
 
     @Override
     public void run(String... args) throws Exception {
@@ -112,6 +123,9 @@ public class ContentBasedRoutingService implements CommandLineRunner {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
+                // Shutting down: Spring closes the JedisPool before these worker threads
+                // notice, so the resulting pool error is expected, not a failure.
+                if (shutdown.get()) break;
                 log.error("Router error: {}", e.getMessage());
                 try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
             }

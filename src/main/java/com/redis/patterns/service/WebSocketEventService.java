@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
 import com.redis.patterns.dto.LlmChatEvent;
 import com.redis.patterns.dto.PubSubEvent;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -53,6 +55,23 @@ public class WebSocketEventService {
     private final ConcurrentHashMap<String, Long> sessionStats = new ConcurrentHashMap<>();
 
     /**
+     * Flipped on context close. The Redis listener Virtual Threads outlive the WebSocket sessions
+     * Spring is already tearing down, so a broadcast attempted after this point is expected to
+     * fail -- it is shutdown noise, not an incident.
+     */
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+
+    @PreDestroy
+    void stopBroadcasting() {
+        shuttingDown.set(true);
+    }
+
+    /** @return true once the application context is closing. */
+    public boolean isShuttingDown() {
+        return shuttingDown.get();
+    }
+
+    /**
      * Registers a new WebSocket session.
      * 
      * @param session The WebSocket session to register
@@ -90,6 +109,10 @@ public class WebSocketEventService {
      * @param event The DLQ event to broadcast
      */
     public void broadcastEvent(DLQEvent event) {
+        if (shuttingDown.get()) {
+            log.debug("Shutting down, dropping DLQEvent broadcast");
+            return;
+        }
         if (sessions.isEmpty()) {
             log.trace("No active WebSocket sessions, skipping broadcast");
             return;
@@ -170,6 +193,10 @@ public class WebSocketEventService {
      * @param event The Pub/Sub event to broadcast
      */
     public void broadcastEvent(PubSubEvent event) {
+        if (shuttingDown.get()) {
+            log.debug("Shutting down, dropping PubSubEvent broadcast");
+            return;
+        }
         if (sessions.isEmpty()) {
             log.trace("No active WebSocket sessions, skipping broadcast");
             return;
@@ -233,6 +260,10 @@ public class WebSocketEventService {
      * @param event The LLM chat event to broadcast
      */
     public void broadcastEvent(LlmChatEvent event) {
+        if (shuttingDown.get()) {
+            log.debug("Shutting down, dropping LlmChatEvent broadcast");
+            return;
+        }
         if (sessions.isEmpty()) {
             log.trace("No active WebSocket sessions, skipping broadcast");
             return;
