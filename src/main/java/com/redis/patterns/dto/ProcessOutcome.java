@@ -1,5 +1,7 @@
 package com.redis.patterns.dto;
 
+import redis.clients.jedis.args.XNackMode;
+
 /**
  * Outcome applied to the next message read by the DLQ demo's process action.
  *
@@ -19,12 +21,12 @@ package com.redis.patterns.dto;
 public enum ProcessOutcome {
     ACK, NO_ACK, NACK_FAIL, NACK_FATAL, NACK_SILENT;
 
-    /** XNACK mode token for NACK_* outcomes, {@code null} for ACK / NO_ACK. */
-    public String xnackMode() {
+    /** XNACK mode for NACK_* outcomes, {@code null} for ACK / NO_ACK. */
+    public XNackMode xnackMode() {
         return switch (this) {
-            case NACK_FAIL -> "FAIL";
-            case NACK_FATAL -> "FATAL";
-            case NACK_SILENT -> "SILENT";
+            case NACK_FAIL -> XNackMode.FAIL;
+            case NACK_FATAL -> XNackMode.FATAL;
+            case NACK_SILENT -> XNackMode.SILENT;
             case ACK, NO_ACK -> null;
         };
     }

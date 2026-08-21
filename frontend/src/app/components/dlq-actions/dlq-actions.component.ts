@@ -1,4 +1,4 @@
-import { Component, signal, inject } from '@angular/core';
+import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
@@ -90,6 +90,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .dlq-actions {
       background: white;

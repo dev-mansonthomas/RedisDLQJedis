@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
@@ -115,6 +115,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .dlq-container {
       max-width: 1400px;

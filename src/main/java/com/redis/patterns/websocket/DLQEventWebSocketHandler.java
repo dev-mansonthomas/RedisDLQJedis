@@ -4,8 +4,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.redis.patterns.service.WebSocketEventService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.lang.NonNull;
