@@ -1,0 +1,125 @@
+# =============================================================================
+# CI — what must hold before a branch is merged
+# =============================================================================
+# Three independent jobs so a red one names the layer that broke. Nothing here is
+# advisory: every step either matters or is not in the file.
+#
+# The load-bearing detail is the "no test was skipped" gate in the backend job.
+# The Redis integration tests start a throwaway container through the docker CLI and
+# **skip** (JUnit assumption) when Docker is unavailable — so a runner without Docker
+# would report a green build while testing almost nothing. That gate is what makes
+# green mean something. See docs/specs/frontend-test-runner.md ("Adjacent, not
+# included") for why this file exists at all.
+# =============================================================================
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push supersedes the previous run on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Java 21, 139 tests incl. real Redis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Fail loudly and early rather than let the integration tests skip themselves away.
+      - name: Docker must be available
+        run: |
+          docker version --format 'Docker server {{.Server.Version}}'
+          docker run --rm redis:8.8-alpine redis-server --version
+
+      - name: mvn clean test
+        run: mvn -B -ntp clean test
+
+      - name: No test may be skipped
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob('target/surefire-reports/TEST-*.xml')
+          if not files:
+              sys.exit('No surefire reports: the suite did not run at all.')
+          total = skipped = 0
+          offenders = []
+          for f in files:
+              root = ET.parse(f).getroot()
+              ran = int(root.get('tests', 0))
+              skip = int(root.get('skipped', 0))
+              total += ran
+              skipped += skip
+              if skip:
+                  offenders.append(f"{root.get('name')}: {skip}/{ran} skipped")
+          print(f"{total} tests, {skipped} skipped, across {len(files)} classes")
+          if skipped:
+              sys.exit("Skipped tests mean Docker was missing and the Redis integration tests "
+                       "assumed themselves away — that is not a green run:\n  "
+                       + "\n  ".join(offenders))
+          if total < 100:
+              sys.exit(f"Only {total} tests ran; the suite was 139 when this gate was written. "
+                       "Raise this floor deliberately, do not lower it by accident.")
+          PY
+
+  frontend:
+    name: Frontend (Angular 22 — lint, unit tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Lint (0 errors is the contract, see CLAUDE.md)
+        run: npm run lint
+
+      - name: Unit tests (Vitest via @angular/build:unit-test)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # The webpack builder was the single source of all 7 findings before it was dropped;
+      # this keeps it that way.
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
+
+  lua:
+    name: Lua functions (luacheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1 luarocks
+          sudo luarocks install luacheck
+
+      # No warning tolerance: the one long-comment warning this repo used to carry was
+      # fixed so this step can be strict.
+      - name: luacheck
+        run: luacheck lua/ --globals redis cjson cmsgpack bit

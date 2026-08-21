@@ -13,7 +13,12 @@
  *
  * And `vi.useFakeTimers()` is not an option either: it freezes the scheduler, so signals update while
  * the DOM stays stale and every case fails for the wrong reason.
+ *
+ * The default delay is ordering insurance, not a measured duration: the scheduled refresh is queued
+ * before this timer, so it runs first whatever the machine's load. 50 ms leaves room for a jsdom
+ * `requestAnimationFrame` shim (~16 ms) on a busy CI runner. If a spec ever flakes anyway, reach for
+ * Vitest's `expect.poll` rather than raising this number.
  */
-export function settle(ms = 20): Promise<void> {
+export function settle(ms = 50): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
