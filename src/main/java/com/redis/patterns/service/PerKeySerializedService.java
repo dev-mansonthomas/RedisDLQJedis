@@ -214,9 +214,9 @@ public class PerKeySerializedService implements CommandLineRunner {
             // ACK the message
             jedis.xack(JOB_STREAM, JOB_GROUP, new StreamEntryID(messageId));
 
-            // Broadcast deletion from source stream
+            // Tell the UI it was acked — the entry stays in the stream
             webSocketEventService.broadcastEvent(DLQEvent.builder()
-                .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                .eventType(DLQEvent.EventType.MESSAGE_ACKED)
                 .messageId(messageId)
                 .streamName(JOB_STREAM)
                 .details("Processed by worker-" + workerId)

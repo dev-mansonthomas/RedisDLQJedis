@@ -121,6 +121,12 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Lua auto-loads** on startup via `RedisLuaFunctionLoader` (`@PostConstruct`, replaces the library).
 - **Stream visualization uses `XREVRANGE`** (read-only, no PENDING side effects); **processing uses
   `XREADGROUP`/Lua**. Don't read groups for display — it creates phantom pending entries.
+- **`MESSAGE_ACKED` vs `MESSAGE_DELETED`.** There is **no `XDEL` anywhere in this codebase**: a
+  worker finishing a message `XACK`s it and the entry stays in the stream. Workers therefore emit
+  **`MESSAGE_ACKED`**, and `stream-viewer` marks the row (dimmed + `acked` badge) without touching
+  `totalMessages`. **`MESSAGE_DELETED` has exactly one legitimate emitter** — `StreamMonitorService`,
+  which diffs seen ids against the ids a stream still holds. Emitting it after an `XACK` is what made
+  the viewer read `0 of 199 messages` against an `XLEN` of 200.
 - **XNACK semantics (Redis 8.8, verified empirically):** a released message stays in the PEL but
   **unowned** (`consumer` empty, `idle = -1`) and is immediately re-claimable (bypasses `minIdle`).
   Counter: `SILENT` → 0, `FAIL` → kept, `FATAL` → `Long.MAX`. `XREADGROUP >` does NOT re-deliver

@@ -114,7 +114,9 @@ class LlmRecoverySweeperTest extends AbstractRedisIntegrationTest {
 
         sweeper.startFor(cid);
 
-        awaitUntil(() -> dlqLen(cid) == 1);
+        // Routing to the DLQ and ACKing out of the main stream are two calls, not one, so waiting on
+        // the DLQ alone occasionally observed the ACK that had not landed yet. Await both.
+        awaitUntil(() -> dlqLen(cid) == 1 && pending(chatKey) == 0);
 
         assertThat(dlqLen(cid)).isEqualTo(1);
         assertThat(pending(chatKey)).isZero();  // acked out of the main stream

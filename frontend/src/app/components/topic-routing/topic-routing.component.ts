@@ -284,8 +284,8 @@ interface RoutingResult {
       <!-- Architecture Diagram -->
       <app-mermaid-diagram
         title="View Architecture & Sequence Diagrams"
-        [architectureDiagram]="diagrams.keyRouting.architecture"
-        [sequenceDiagram]="diagrams.keyRouting.sequence">
+        [architectureDiagram]="diagrams.streamTopicRouting.architecture"
+        [sequenceDiagram]="diagrams.streamTopicRouting.sequence">
       </app-mermaid-diagram>
     
       <!-- Info Box -->

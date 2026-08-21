@@ -16,6 +16,7 @@ export interface StreamMessage {
   deliveryCount?: number;     // PEL delivery counter (only when the entry is pending)
   isReleased?: boolean;       // XNACK-released: pending but unowned (consumer empty / idle -1)
   isPoison?: boolean;         // XNACK FATAL: counter at Long.MAX (rendered as ∞ — JSON rounds it)
+  acked?: boolean;            // XACK'd by a worker. The entry STAYS in the stream (a stream is a log)
 }
 
 /**
@@ -58,7 +59,8 @@ export interface StreamMessage {
             [style.flex]="'0 0 ' + messageHeight + 'px'"
             [class.flash-error]="message.isFlashingError"
             [class.flash-success]="message.isFlashingSuccess"
-            [class.next-to-process]="message.isNextToProcess">
+            [class.next-to-process]="message.isNextToProcess"
+            [class.acked]="message.acked">
             @if (showNextIndicator && message.isNextToProcess) {
               <span class="next-indicator">➡️</span>
             }
@@ -73,6 +75,9 @@ export interface StreamMessage {
                 }
                 @if (message.isReleased) {
                   <span class="badge released" title="XNACK-released: unowned, immediately re-claimable">released</span>
+                }
+                @if (message.acked) {
+                  <span class="badge acked" title="XACKed by a worker — the entry stays in the stream, because XACK is not XDEL">acked</span>
                 }
               </span>
             </div>
@@ -350,6 +355,16 @@ export interface StreamMessage {
       color: #fecaca;
     }
 
+    .badge.acked {
+      background: #064e3b;
+      color: #a7f3d0;
+    }
+
+    /* Acked entries stay visible on purpose — dimmed, not removed. */
+    .message-cell.acked {
+      opacity: 0.55;
+    }
+
     .message-id {
       font-family: 'Courier New', monospace;
       font-size: 10px;
@@ -590,7 +605,23 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       // Don't return - continue processing other events
     }
 
-    // Handle message deletion (ACK)
+    // A worker finished a message. It is acknowledged, NOT deleted: the entry is still in the
+    // stream, so the row stays and the total is untouched. Removing it here is what used to make the
+    // viewer read "0 of 199 messages" while XLEN said 200.
+    if (event.eventType === 'MESSAGE_ACKED' && event.messageId) {
+      const acked = this.displayedMessages.find(m => m.id === event.messageId);
+      if (acked) {
+        acked.acked = true;
+        acked.deliveryCount = undefined; // no longer pending
+        acked.isReleased = false;
+        this.flashMessageSuccess(event.messageId);
+        this.updateNextIndicator();
+        this.cdr.markForCheck();
+      }
+      return;
+    }
+
+    // Handle a genuine disappearance from the stream (XDEL or trim), detected by StreamMonitorService.
     if (event.eventType === 'MESSAGE_DELETED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: MESSAGE_DELETED received for:`, event.messageId);
 
