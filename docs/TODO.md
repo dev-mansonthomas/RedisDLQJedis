@@ -175,6 +175,33 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
   against a hand-written `ResponsePayload` interface that mirrors the backend by convention only;
   nothing fails if the backend DTO drifts. Same for the new `PubSubEvent` frontend interface.
 
+## Demo legibility — requested by the author 2026-08-21
+
+These are about what a prospect *sees*. They are feature work, not defects, except where noted.
+
+- 🟠 **DLQ page: say what is being demonstrated, and what is left to do.** Pressing a button
+  should reveal a panel underneath that states (a) the point of this test — what we want to show a
+  customer — and (b) the remaining actions needed to complete the scenario. Today the buttons act with
+  no narrative, so a viewer who does not already know the DLQ pattern cannot tell what they just proved.
+  → Per-button copy: intent + the ordered next steps, with the current step highlighted. The same
+  treatment would help every pattern page; DLQ first because it is the landing pattern.
+- 🟠 **Per-Key Serialized: the guarantee does not jump out.** The whole promise is that two
+  jobs for the *same* key never run concurrently while different keys do run in parallel — and the
+  current view does not make that visible. → Render **one time-slot lane per worker**, so a viewer can
+  scan a lane and see a single key `XXXX` occupying it at a time, never two. The moment that lands, the
+  pattern explains itself. Note this is also the pattern whose `minIdle` safety margin was never
+  audited (see the claim-based duplication item above) — the lanes would *show* a duplicate run, making
+  the diagram double as a correctness check.
+- 🟡 **LLM Chat: token-by-token streaming reported as invisible on long replies** — the text
+  is said to arrive as one block after a wait, while the token counter climbs. **Measured on the
+  Angular 22 build (2026-08-21) and it does stream**: with `long text` as the prompt, the first
+  character appears after **309 ms**, then the assistant bubble grows 46 → 1040 characters over **23
+  distinct steps**, largest single jump 66 characters. So either the report predates that build, or
+  the trigger is a case this measurement missed. → Get the repro (exact prompt, reply length, whether
+  the internals panel was open) before changing anything; if it reproduces, the suspects are
+  `MockLlmClient`'s `tokenDelayMs` and the 1500 ms `refresh()` poll racing the `ASSISTANT_MESSAGE`
+  event, which does replace the streamed text with the complete turn in one assignment.
+
 ## Code review & security
 
 - ✅ **First full `/code-review`** (2026-06-29) — findings tracked in
