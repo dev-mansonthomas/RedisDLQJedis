@@ -22,13 +22,19 @@
 
 ## Correctness / build
 
-- 🟠 **XNACK via raw `Jedis.sendCommand`** (`DLQMessagingService.XnackCommand`) — **now unblocked
-  (verified 2026-08-11): Jedis `8.0.0` is GA** (`maven-metadata.xml` `<release>8.0.0`) and ships the
-  typed `xnack(String, String, XNackMode, StreamEntryID...)` with `XNackMode.SILENT|FAIL|FATAL`
-  (`javap` on the 8.0.0 jar). Still no typed `RETRYCOUNT`/`FORCE`, which the demo does not use.
-  → Bump `jedis.version` 7.5.3 → 8.0.0 and replace the raw `sendCommand` workaround; `XReadGroupParams`
-  (`count`/`block`/`claim`) and `fcall` are unchanged between the two jars, so the other patterns should
-  compile untouched. Needs its own slice + `mvn clean test` (added 2026-07-09, ADR-0011).
+- ✅ **XNACK is typed; Jedis 8.0.0** — *done 2026-08-21*. `DLQMessagingService.XnackCommand` (and the
+  test's copy of it) are gone: `jedis.xnack(stream, group, XNackMode.FAIL, id)`. Signature checked with
+  `javap` on the jar first. `ProcessOutcome.xnackMode()` now returns `XNackMode`, not a `String` token.
+  Jedis 8's breaking changes do not touch this project (`JedisPooled`/`JedisSentineled` removals and
+  RESP3 auto-negotiation apply to UnifiedJedis-based clients; this uses `JedisPool`).
+- ✅ **Spring Boot 4.1.1 + Jackson 3** — *done 2026-08-21*, see ADR-0013. Two moves were needed beyond
+  the version bump: `@WebMvcTest` lives in `org.springframework.boot.webmvc.test.autoconfigure`
+  (artifact `spring-boot-starter-webmvc-test`), and the auto-configured `ObjectMapper` is Jackson 3, so
+  14 files moved from `com.fasterxml.jackson.databind` to `tools.jackson.databind`. Verified beyond the
+  suite because tests cover only 3 of 12 patterns and **none** covers WebSocket: 23/23 GET endpoints
+  return valid JSON, the WS stream delivers parseable events, `@JsonFormat` is still honoured
+  (`"timestamp":"2026-08-21T08:41:57.389"`, 3 decimals), and request/reply round-trips through
+  `writeValueAsString` + `TypeReference`.
 - 🟡 **Post #1's samples pin stale client versions** (found while planning post #2, 2026-08-11):
   `blog/dlq-redis-streams/samples/` uses NRedisStack `0.13.1` (latest **1.7.3**), Rust `redis` `0.32`
   (latest **1.5.0**, i.e. now past 1.0), go-redis `v9.21.0` (latest `v9.22.0`) and Jedis `7.5.3`
@@ -145,6 +151,13 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
 - 🟡 **The legacy `redismessagingpatternswithjedis_redis-data` volume is orphaned** — no longer
   declared in compose, so `docker compose down` leaves it. → `./clean-docker.sh` (`down -v`) or
   `docker volume rm redismessagingpatternswithjedis_redis-data`.
+## Found while upgrading to Spring Boot 4 (2026-08-21)
+
+- 🟡 **`GET /api/dlq/stats` logs an ERROR for a perfectly normal empty state.**
+  `DLQMessagingService.getPendingCount` runs `XPENDING` on a group that does not exist yet (fresh or
+  flushed Redis, DLQ page never opened), catches the NOGROUP error and logs
+  `Failed to get pending count` at ERROR before returning 0. Pre-existing, unrelated to Boot 4, but it
+  makes a clean startup look broken. → Treat NOGROUP as "0 pending" at DEBUG, keep ERROR for the rest.
 
 ## Code review & security
 

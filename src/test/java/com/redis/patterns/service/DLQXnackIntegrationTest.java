@@ -1,6 +1,6 @@
 package com.redis.patterns.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.redis.patterns.config.DLQProperties;
 import com.redis.patterns.dto.DLQConfigRequest;
 import com.redis.patterns.dto.DLQMessage;

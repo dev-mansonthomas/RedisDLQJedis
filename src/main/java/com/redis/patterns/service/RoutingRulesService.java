@@ -1,7 +1,7 @@
 package com.redis.patterns.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -210,7 +210,7 @@ public class RoutingRulesService implements CommandLineRunner {
             map.put("enabled", rule.isEnabled());
             map.put("stopOnMatch", rule.isStopOnMatch());
             return objectMapper.writeValueAsString(map);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to serialize rule", e);
         }
     }
@@ -366,7 +366,7 @@ public class RoutingRulesService implements CommandLineRunner {
             rule.setStopOnMatch((Boolean) map.getOrDefault("stopOnMatch", false));
 
             return rule;
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to parse rule JSON", e);
         }
     }

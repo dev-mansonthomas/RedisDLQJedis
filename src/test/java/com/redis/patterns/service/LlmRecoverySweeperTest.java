@@ -1,6 +1,6 @@
 package com.redis.patterns.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.redis.patterns.config.LlmChatProperties;
 import com.redis.patterns.service.llm.MockLlmClient;
 import com.redis.patterns.support.AbstractRedisIntegrationTest;

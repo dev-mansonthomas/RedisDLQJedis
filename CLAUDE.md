@@ -17,12 +17,13 @@ observability over hardening.
 | Component | Version | Notes |
 |-----------|---------|-------|
 | Java | 21 | Virtual Threads used heavily |
-| Spring Boot | 3.5.7 | Web, WebSocket, Actuator, Validation |
-| Jedis | 7.5.3 | Direct `JedisPool`, no Spring Data Redis; XNACK via raw `sendCommand` (no typed API in stable Jedis) |
+| Spring Boot | 4.1.1 | Spring Framework 7; Web, WebSocket, Actuator, Validation |
+| Jedis | 8.0.0 | Direct `JedisPool`, no Spring Data Redis; **typed `xnack(..., XNackMode, ...)`** (the raw `sendCommand` workaround is gone) |
 | Redis | 8.8-alpine | **8.8+ required** for `XNACK` (explicit NACK); `XREADGROUP ... CLAIM` itself needs 8.4+ |
 | Angular | 21 | Standalone components, lazy routes, Angular Material |
 | Realtime | SockJS + raw WebSocket | endpoint `/api/ws/dlq-events` |
 | Diagrams | mermaid 11 | per-pattern flow diagrams in the UI |
+| JSON | Jackson **3** (`tools.jackson`) | the Boot 4 default; annotations stay `com.fasterxml.jackson.annotation` (ADR-0013) |
 
 ## How to run (verified)
 
