@@ -41,14 +41,16 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   0 errors, 1 cosmetic warning (long line) — measured 2026-07-31.
-- **Backend tests:** `mvn clean test` — **93 tests**: LLM Chat (#12) + DLQ/XNACK
-  (`DLQXnackIntegrationTest`, `DLQProcessControllerTest`) + Work Queue worker pool & demo modes
-  (`WorkQueueScalingIntegrationTest`, `WorkQueueWorkersControllerTest`, `WorkQueueDemoModeTest`).
-  Integration tests use a real
-  Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
+- **Backend tests:** `mvn clean test` — **139 tests, all 12 patterns covered**. Integration tests use a
+  real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
-  run. The other 9 patterns have no tests yet.
+  run. **The suite takes ~4 minutes**; that is not a hang: `TokenBucketIntegrationTest` (117s) and
+  `PerKeySerializedIntegrationTest` (50s) assert timing-based guarantees against the services' real
+  4–10s simulated work. Writing a new pattern test? Two traps: (1) `mvn test` without `clean` fails
+  with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
+  `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
+  it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
 - **Frontend tests:** still none — `angular.json` has no `test` target, so `ng test` has no builder.
   `@angular/build` is now a **direct** dependency (it replaced `@angular-devkit/build-angular`), so its
   `unit-test` builder (Vitest) is one target away: a 1-line target + `npm i -D vitest jsdom`. Plan, traps and effort:
@@ -109,8 +111,12 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **`minIdle` must outlast the simulated work time in every claim-based pattern.** If it doesn't, a free
   worker claims a job its busy peer is still processing and the job runs **twice, silently** (no error,
   empty PEL, empty DLQ). The work queue shipped 100 ms / 100 ms and duplicated **120 of 266** completed
-  jobs in a live run; its `DemoMode` presets now enforce `minIdleMs >= 2 * workMs`. Token Bucket and the
-  LLM Chat sweeper are **unaudited** for this — see `docs/TODO.md`.
+  jobs in a live run; its `DemoMode` presets now enforce `minIdleMs >= 2 * workMs`. **Token Bucket and
+  Per-Key Serialized are now audited** and clean — `TokenBucketIntegrationTest` and
+  `PerKeySerializedIntegrationTest` assert no job is processed twice under saturation. Note Token
+  Bucket's margin is thinner than the rule of thumb (`RECLAIM_MIN_IDLE_MS` 15s vs 10s for a CSV job =
+  1.5x, not 2x) — it holds because it still exceeds the work time, so treat those two constants as
+  coupled. The **LLM Chat sweeper remains unaudited** — see `docs/TODO.md`.
 - **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
   Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
   corrupted classes (`ClassFormatError: Truncated class file`).
