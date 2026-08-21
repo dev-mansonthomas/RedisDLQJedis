@@ -20,7 +20,7 @@ observability over hardening.
 | Spring Boot | 4.1.1 | Spring Framework 7; Web, WebSocket, Actuator, Validation |
 | Jedis | 8.0.0 | Direct `JedisPool`, no Spring Data Redis; **typed `xnack(..., XNackMode, ...)`** (the raw `sendCommand` workaround is gone) |
 | Redis | 8.8-alpine | **8.8+ required** for `XNACK` (explicit NACK); `XREADGROUP ... CLAIM` itself needs 8.4+ |
-| Angular | 21 | Standalone components, lazy routes, Angular Material |
+| Angular | 22 | Standalone components, lazy routes, Angular Material; TypeScript 6.0; `@angular/build` (esbuild) |
 | Realtime | SockJS + raw WebSocket | endpoint `/api/ws/dlq-events` |
 | Diagrams | mermaid 11 | per-pattern flow diagrams in the UI |
 | JSON | Jackson **3** (`tools.jackson`) | the Boot 4 default; annotations stay `com.fasterxml.jackson.annotation` (ADR-0013) |
@@ -49,12 +49,16 @@ observability over hardening.
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
   run. The other 9 patterns have no tests yet.
-- **Frontend tests:** still none — `angular.json` has no `test` target, so `ng test` has no builder. The
-  `@angular/build:unit-test` builder (Vitest) is *already installed* as a transitive dep; setup is a
-  1-line target + `npm i -D vitest jsdom`. Plan, traps and effort:
+- **Frontend tests:** still none — `angular.json` has no `test` target, so `ng test` has no builder.
+  `@angular/build` is now a **direct** dependency (it replaced `@angular-devkit/build-angular`), so its
+  `unit-test` builder (Vitest) is one target away: a 1-line target + `npm i -D vitest jsdom`. Plan, traps and effort:
   [`docs/specs/frontend-test-runner.md`](docs/specs/frontend-test-runner.md).
-- **Lint:** `cd frontend && npm run lint` → 76 pre-existing errors in older components (see
-  `docs/TODO.md`); the `llm-chat` component/service are lint-clean.
+- **Lint:** `cd frontend && npm run lint` → **0 errors** (was 145 under angular-eslint 22). Keep it
+  there: templates use the built-in control flow (`@if`/`@for`, not `*ngIf`), every `<label>` is
+  associated with its control (a caption that labels a *group* is a `<span class="group-label">`, not a
+  label), clickable non-button elements carry `role`/`tabindex`/`keydown`, and **components are
+  `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, or the view will not
+  refresh.
 
 ## Layout
 

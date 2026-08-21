@@ -1,8 +1,8 @@
 import { Component, OnInit, OnDestroy, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { WebSocketService } from '../../services/websocket.service';
+import { WebSocketService, PubSubEvent } from '../../services/websocket.service';
 import { Subscription } from 'rxjs';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
@@ -21,10 +21,14 @@ interface ReceivedMessage {
   pattern: string;
 }
 
+interface PublishResponse {
+  subscriberCount: number;
+}
+
 @Component({
   selector: 'app-pubsub-topic-routing',
   standalone: true,
-  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
+  imports: [FormsModule, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './pubsub-topic-routing.component.html',
   styleUrl: './pubsub-topic-routing.component.scss'
@@ -60,17 +64,18 @@ export class PubsubTopicRoutingComponent implements OnInit, OnDestroy {
       this.wsConnected.set(status);
       this.cdr.markForCheck();
     });
-    this.subscription = this.wsService.getEvents().subscribe((event: any) => {
-      if (event.eventType === 'MESSAGE_RECEIVED' && event.payload?._subscriber) {
-        const subscriberName = event.payload._subscriber;
+    this.subscription = this.wsService.getEvents().subscribe((event: PubSubEvent) => {
+      if (event.eventType === 'MESSAGE_RECEIVED' && event.payload?.['_subscriber']) {
+        const payload = event.payload;
+        const subscriberName = payload['_subscriber'];
         this.subscribers.update(subs => subs.map(sub => {
           if (sub.name === subscriberName) {
             const newMsg: ReceivedMessage = {
-              channel: event.channel,
-              payload: event.payload,
-              timestamp: event.timestamp,
+              channel: event.channel ?? '',
+              payload,
+              timestamp: event.timestamp ?? new Date().toISOString(),
               subscriber: subscriberName,
-              pattern: event.payload._pattern
+              pattern: payload['_pattern']
             };
             return { ...sub, messages: [newMsg, ...sub.messages].slice(0, 20) };
           }
@@ -100,7 +105,7 @@ export class PubsubTopicRoutingComponent implements OnInit, OnDestroy {
     const payload: Record<string, string> = {};
     this.fields().forEach(f => { if (f.key && f.value) payload[f.key] = f.value; });
 
-    this.http.post<any>(`${this.apiUrl}/publish`, {
+    this.http.post<PublishResponse>(`${this.apiUrl}/publish`, {
       routingKey: this.selectedRoutingKey,
       payload
     }).subscribe({
@@ -131,7 +136,7 @@ export class PubsubTopicRoutingComponent implements OnInit, OnDestroy {
     }));
   }
 
-  getPayloadFields(payload: Record<string, string>): Array<{key: string, value: string}> {
+  getPayloadFields(payload: Record<string, string>): {key: string, value: string}[] {
     return Object.entries(payload)
       .filter(([k]) => !k.startsWith('_'))
       .map(([key, value]) => ({ key, value }));

@@ -2,12 +2,12 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { HeaderComponent } from './components/header/header.component';
 import { SidebarComponent } from './components/sidebar/sidebar.component';
-import { CommonModule } from '@angular/common';
+
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, HeaderComponent, SidebarComponent, CommonModule],
+  imports: [RouterOutlet, HeaderComponent, SidebarComponent],
   template: `
     <div class="app-container">
       <app-header></app-header>
@@ -22,7 +22,7 @@ import { CommonModule } from '@angular/common';
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .app-container {
       height: 100vh;

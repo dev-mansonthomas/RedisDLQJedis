@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
@@ -18,7 +18,7 @@ interface ScheduledMessage {
 @Component({
   selector: 'app-scheduled-messages',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
+  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="scheduled-messages-container">
@@ -28,7 +28,7 @@ interface ScheduledMessage {
           Schedule messages to be delivered at a specific time. Uses Redis Sorted Set with score = execution timestamp.
         </p>
       </div>
-
+    
       <!-- Controls Section -->
       <div class="controls-section">
         <div class="controls-row">
@@ -43,37 +43,43 @@ interface ScheduledMessage {
           </div>
         </div>
       </div>
-
+    
       <!-- Two-column layout for pending and executed messages -->
       <div class="two-columns">
         <!-- Scheduled Messages List -->
         <div class="scheduled-section">
           <h3>📋 Pending Scheduled Messages ({{ messages.length }})</h3>
-          <div class="messages-list messages-scroll" *ngIf="messages.length > 0">
-            <div class="message-card" *ngFor="let msg of messages" [class.due-soon]="dueSoonFlags.get(msg.id)">
-              <div class="message-header">
-                <span class="message-title">{{ msg.title }}</span>
-                <span class="message-countdown" [class.warning]="dueSoonFlags.get(msg.id)">
-                  {{ countdowns.get(msg.id) || 'Loading...' }}
-                </span>
-              </div>
-              <div class="message-description">{{ msg.description }}</div>
-              <div class="message-footer">
-                <span class="scheduled-time">
-                  📅 {{ formatDate(msg.scheduledFor) }}
-                </span>
-                <div class="message-actions">
-                  <button class="btn-icon btn-edit" (click)="openEditModal(msg)" title="Edit">✏️</button>
-                  <button class="btn-icon btn-delete" (click)="deleteMessage(msg.id)" title="Delete">🗑️</button>
+          @if (messages.length > 0) {
+            <div class="messages-list messages-scroll">
+              @for (msg of messages; track msg) {
+                <div class="message-card" [class.due-soon]="dueSoonFlags.get(msg.id)">
+                  <div class="message-header">
+                    <span class="message-title">{{ msg.title }}</span>
+                    <span class="message-countdown" [class.warning]="dueSoonFlags.get(msg.id)">
+                      {{ countdowns.get(msg.id) || 'Loading...' }}
+                    </span>
+                  </div>
+                  <div class="message-description">{{ msg.description }}</div>
+                  <div class="message-footer">
+                    <span class="scheduled-time">
+                      📅 {{ formatDate(msg.scheduledFor) }}
+                    </span>
+                    <div class="message-actions">
+                      <button class="btn-icon btn-edit" (click)="openEditModal(msg)" title="Edit">✏️</button>
+                      <button class="btn-icon btn-delete" (click)="deleteMessage(msg.id)" title="Delete">🗑️</button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              }
             </div>
-          </div>
-          <div class="empty-state" *ngIf="messages.length === 0">
-            <p>No scheduled messages. Click "Add Scheduled Message" to create one.</p>
-          </div>
+          }
+          @if (messages.length === 0) {
+            <div class="empty-state">
+              <p>No scheduled messages. Click "Add Scheduled Message" to create one.</p>
+            </div>
+          }
         </div>
-
+    
         <!-- Executed Messages Stream -->
         <div class="stream-section">
           <h3>✅ Executed Messages (reminders.v1)</h3>
@@ -85,48 +91,52 @@ interface ScheduledMessage {
           </app-stream-viewer>
         </div>
       </div>
-
+    
       <!-- Add/Edit Modal -->
-      <div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
-        <div class="modal-content" (click)="$event.stopPropagation()">
-          <h3>{{ editingMessage ? 'Edit' : 'Add' }} Scheduled Message</h3>
-          <form (ngSubmit)="saveMessage()">
-            <div class="form-group">
-              <label for="title">Title</label>
-              <input id="title" type="text" [(ngModel)]="formData.title" name="title" required>
-            </div>
-            <div class="form-group">
-              <label for="description">Description</label>
-              <textarea id="description" [(ngModel)]="formData.description" name="description" rows="3"></textarea>
-            </div>
-            <div class="form-group">
-              <label for="scheduledFor">Scheduled For</label>
-              <div class="datetime-row">
-                <input id="scheduledFor" type="datetime-local" [(ngModel)]="formData.scheduledForInput"
-                       name="scheduledFor" required [min]="minDateTime" class="datetime-input">
-                <div class="seconds-input">
-                  <label for="seconds">Sec</label>
-                  <input id="seconds" type="number" [(ngModel)]="formData.seconds" name="seconds"
-                         min="0" max="59" placeholder="00">
+      @if (showModal) {
+        <div class="modal-overlay" (click)="onOverlayClick($event)" role="button" tabindex="0" aria-label="Close dialog" (keydown.escape)="closeModal()" (keydown.enter)="closeModal()" (keydown.space)="closeModal()">
+          <div class="modal-content">
+            <h3>{{ editingMessage ? 'Edit' : 'Add' }} Scheduled Message</h3>
+            <form (ngSubmit)="saveMessage()">
+              <div class="form-group">
+                <label for="title">Title</label>
+                <input id="title" type="text" [(ngModel)]="formData.title" name="title" required>
+              </div>
+              <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" [(ngModel)]="formData.description" name="description" rows="3"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="scheduledFor">Scheduled For</label>
+                <div class="datetime-row">
+                  <input id="scheduledFor" type="datetime-local" [(ngModel)]="formData.scheduledForInput"
+                    name="scheduledFor" required [min]="minDateTime" class="datetime-input">
+                  <div class="seconds-input">
+                    <label for="seconds">Sec</label>
+                    <input id="seconds" type="number" [(ngModel)]="formData.seconds" name="seconds"
+                      min="0" max="59" placeholder="00">
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="form-error" *ngIf="formError">{{ formError }}</div>
-            <div class="modal-actions">
-              <button type="button" class="btn btn-cancel" (click)="closeModal()">Cancel</button>
-              <button type="submit" class="btn btn-save">{{ editingMessage ? 'Update' : 'Schedule' }}</button>
-            </div>
-          </form>
+              @if (formError) {
+                <div class="form-error">{{ formError }}</div>
+              }
+              <div class="modal-actions">
+                <button type="button" class="btn btn-cancel" (click)="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-save">{{ editingMessage ? 'Update' : 'Schedule' }}</button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
-
+      }
+    
       <!-- Architecture Diagram -->
       <app-mermaid-diagram
         title="View Architecture & Sequence Diagrams"
         [architectureDiagram]="diagrams.scheduledMessages.architecture"
         [sequenceDiagram]="diagrams.scheduledMessages.sequence">
       </app-mermaid-diagram>
-
+    
       <!-- Info Section -->
       <div class="info-box">
         <div class="info-header">
@@ -149,36 +159,36 @@ interface ScheduledMessage {
               <li><strong>Polls every 500ms</strong> for due messages</li>
               <li><strong>Query</strong>: <code>ZRANGEBYSCORE scheduled.messages 0 &lt;now&gt; LIMIT 0 10</code></li>
               <li><strong>For each due message</strong>:
-                <ul>
-                  <li>Read payload from Hash (<code>HGETALL</code>)</li>
-                  <li>Publish to <code>reminders.v1</code> stream (<code>XADD</code>)</li>
-                  <li>Remove from Sorted Set (<code>ZREM</code>) + delete Hash</li>
-                </ul>
-              </li>
-            </ol>
-          </div>
-          <div class="info-section">
-            <h4>🔧 Technical Details</h4>
-            <ul>
-              <li><strong>Sorted Set</strong>: <code>scheduled.messages</code> - efficient time-based queries O(log N)</li>
-              <li><strong>Hash per message</strong>: <code>scheduled:message:&lt;id&gt;</code> - stores full payload</li>
-              <li><strong>Stream</strong>: <code>reminders.v1</code> - executed messages for downstream processing</li>
-              <li><strong>Virtual Thread</strong>: Java 21 lightweight thread for non-blocking scheduler</li>
-            </ul>
-          </div>
-          <div class="info-section">
-            <h4>💡 Use Cases</h4>
-            <ul>
-              <li><strong>Payment reminders</strong>: Send reminder N days before due date</li>
-              <li><strong>Order expiration</strong>: Cancel unpaid orders after X hours</li>
-              <li><strong>Retry with backoff</strong>: Schedule retry after exponential delay</li>
-              <li><strong>Welcome sequences</strong>: Send onboarding emails at T+1h, T+24h, T+72h</li>
-            </ul>
-          </div>
+              <ul>
+                <li>Read payload from Hash (<code>HGETALL</code>)</li>
+                <li>Publish to <code>reminders.v1</code> stream (<code>XADD</code>)</li>
+                <li>Remove from Sorted Set (<code>ZREM</code>) + delete Hash</li>
+              </ul>
+            </li>
+          </ol>
+        </div>
+        <div class="info-section">
+          <h4>🔧 Technical Details</h4>
+          <ul>
+            <li><strong>Sorted Set</strong>: <code>scheduled.messages</code> - efficient time-based queries O(log N)</li>
+            <li><strong>Hash per message</strong>: <code>scheduled:message:&lt;id&gt;</code> - stores full payload</li>
+            <li><strong>Stream</strong>: <code>reminders.v1</code> - executed messages for downstream processing</li>
+            <li><strong>Virtual Thread</strong>: Java 21 lightweight thread for non-blocking scheduler</li>
+          </ul>
+        </div>
+        <div class="info-section">
+          <h4>💡 Use Cases</h4>
+          <ul>
+            <li><strong>Payment reminders</strong>: Send reminder N days before due date</li>
+            <li><strong>Order expiration</strong>: Cancel unpaid orders after X hours</li>
+            <li><strong>Retry with backoff</strong>: Schedule retry after exponential delay</li>
+            <li><strong>Welcome sequences</strong>: Send onboarding emails at T+1h, T+24h, T+72h</li>
+          </ul>
         </div>
       </div>
     </div>
-  `,
+    </div>
+    `,
   styles: [`
     .scheduled-messages-container { padding: 20px; max-width: 1400px; margin: 0 auto; }
     .page-header { margin-bottom: 24px; }
@@ -252,8 +262,8 @@ export class ScheduledMessagesComponent implements OnInit, OnDestroy {
   private apiUrl = 'http://localhost:8080/api/scheduled-messages';
 
   messages: ScheduledMessage[] = [];
-  countdowns: Map<string, string> = new Map();
-  dueSoonFlags: Map<string, boolean> = new Map();
+  countdowns = new Map<string, string>();
+  dueSoonFlags = new Map<string, boolean>();
   showModal = false;
   editingMessage: ScheduledMessage | null = null;
   formData = { title: '', description: '', scheduledForInput: '', seconds: 0 };
@@ -355,6 +365,17 @@ export class ScheduledMessagesComponent implements OnInit, OnDestroy {
       seconds: date.getSeconds()
     };
     this.showModal = true;
+  }
+
+  /**
+   * Closes only when the backdrop itself is clicked. Checking the target here is what lets the
+   * inner card drop its `$event.stopPropagation()` click sink -- a handler that existed only to
+   * cancel this one, and that no keyboard user could ever reach.
+   */
+  onOverlayClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      this.closeModal();
+    }
   }
 
   closeModal(): void {

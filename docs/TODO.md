@@ -55,10 +55,14 @@
   `npm run lint` + `npm test`; note the Redis integration tests **skip** without Docker, so a runner
   without Docker would go green while testing almost nothing. See
   [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) ("Adjacent, not included").
-- 🟠 **Frontend lint: 76 errors** (`npm run lint`). Dominant categories: `@angular-eslint/template/
-  label-has-associated-control`, `click-events-have-key-events` / `interactive-supports-focus`
-  (a11y), `@typescript-eslint/no-explicit-any`, `@angular-eslint/no-empty-lifecycle-method`.
-  8 are auto-fixable (`npm run lint -- --fix`).
+- ✅ **Frontend lint is clean** — *done 2026-08-21*: **145 → 0**. The count went up before it went
+  down: angular-eslint 22 adds `prefer-control-flow`, so the 76 became 145. Fixed, not silenced —
+  62 template blocks migrated to `@if`/`@for` with the official `@angular/core:control-flow`
+  schematic, 26 `any` replaced by real response types (which exposed that the pub/sub pages receive
+  `PubSubEvent`, not `DLQEvent` — the socket carries a union, and `any` was hiding it), 19 labels
+  associated with their control, 14 a11y errors on clickable `div`s given `role`/`tabindex`/keyboard
+  handlers, and the 11 components flagged `prefer-on-push` converted to **OnPush**. No rule was
+  disabled. Verified in a real browser: 20/20 interactive checks, 0 console errors.
 - ✅ **Backend builds & runs locally in this VM** — *resolved 2026-06-29*: Java 21 + Maven 3.9.16
   are now installed (host VM provisioning), so `mvn compile`/`mvn package` work directly; the Docker
   multi-stage path also works. Lua lint available via `luacheck`.
@@ -76,8 +80,8 @@
 | npm / git | bundled / any | 11.13.0 / 2.43.0 | ✅ |
 
 No multi-version needs (single Java 21, single Node line; no `.nvmrc`/`.tool-versions`/Python/Go/PHP/TF).
-Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Dockerfile build stage to
-`node:24-alpine` to match the runtime VM.
+Node parity: ✅ *resolved 2026-08-21* — the frontend Dockerfile build stage is `node:24-alpine`,
+matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 - ✅ **`TokenBucketService` `XREADGROUP_UNDELIVERED_ENTRY`** (Jedis 7 API) — compile-verified via the
   Docker build; the service also now uses registered `FCALL acquire_token`/`release_token` instead of
   inline `EVAL`.
@@ -158,6 +162,18 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
   flushed Redis, DLQ page never opened), catches the NOGROUP error and logs
   `Failed to get pending count` at ERROR before returning 0. Pre-existing, unrelated to Boot 4, but it
   makes a clean startup look broken. → Treat NOGROUP as "0 pending" at DEBUG, keep ERROR for the rest.
+
+## Found while upgrading the frontend (2026-08-21)
+
+- 🟡 **OnPush is now load-bearing and nothing guards it.** The 11 components converted to
+  `ChangeDetectionStrategy.OnPush` refresh only because their mutable template state sits in
+  `signal()`s (or changes from their own template events). A future contributor adding a plain field
+  mutated from a `subscribe`/`setInterval` will get a view that silently stops updating — the exact
+  failure mode no test can catch here. → The frontend test runner
+  ([`specs/frontend-test-runner.md`](specs/frontend-test-runner.md)) is now the highest-value gap.
+- 🟡 **`request-reply` still trusts the WebSocket payload shape.** `handleResponse` is typed
+  against a hand-written `ResponsePayload` interface that mirrors the backend by convention only;
+  nothing fails if the backend DTO drifts. Same for the new `PubSubEvent` frontend interface.
 
 ## Code review & security
 

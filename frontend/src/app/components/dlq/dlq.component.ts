@@ -1,5 +1,5 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
 import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
@@ -9,7 +9,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
 @Component({
   selector: 'app-dlq',
   standalone: true,
-  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent, DlqActionsComponent, MermaidDiagramComponent],
+  imports: [StreamViewerComponent, DlqConfigComponent, DlqActionsComponent, MermaidDiagramComponent],
   template: `
     <div class="dlq-container">
       <div class="page-header">
@@ -115,7 +115,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .dlq-container {
       max-width: 1400px;

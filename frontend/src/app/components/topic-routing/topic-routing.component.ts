@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -37,31 +37,35 @@ interface RoutingResult {
           Unlike simple pub/sub: messages are persisted and can go to multiple destinations.
         </p>
       </div>
-
+    
       <!-- Controls Section -->
       <div class="controls-section">
         <div class="controls-row">
           <div class="routing-key-selector">
-            <label>Routing Key:</label>
-            <select [(ngModel)]="selectedRoutingKey">
-              <option *ngFor="let key of routingKeys" [value]="key">{{ key }}</option>
+            <label for="tr-routing-key">Routing Key:</label>
+            <select id="tr-routing-key" [(ngModel)]="selectedRoutingKey">
+              @for (key of routingKeys; track key) {
+                <option [value]="key">{{ key }}</option>
+              }
             </select>
           </div>
-
+    
           <button class="btn btn-route" (click)="routeMessage()">
             📤 Route Message
           </button>
-
+    
           <button class="btn btn-clear" (click)="clearAllStreams()">
             🗑 Clear All
           </button>
-
-          <div class="message-counter" *ngIf="messagesRouted > 0">
-            Messages routed: <strong>{{ messagesRouted }}</strong>
-          </div>
+    
+          @if (messagesRouted > 0) {
+            <div class="message-counter">
+              Messages routed: <strong>{{ messagesRouted }}</strong>
+            </div>
+          }
         </div>
       </div>
-
+    
       <!-- Stream Viewers -->
       <div class="streams-grid">
         <!-- Exchange Stream -->
@@ -73,7 +77,7 @@ interface RoutingResult {
             [containerHeight]="200">
           </app-stream-viewer>
         </div>
-
+    
         <!-- Target Streams - Order Routing Use Case -->
         <div class="stream-section">
           <h3>📦 Orders API v1 (*.v1)</h3>
@@ -83,7 +87,7 @@ interface RoutingResult {
             [containerHeight]="200">
           </app-stream-viewer>
         </div>
-
+    
         <div class="stream-section">
           <h3>🚀 Orders API v2 (*.v2)</h3>
           <app-stream-viewer
@@ -92,7 +96,7 @@ interface RoutingResult {
             [containerHeight]="200">
           </app-stream-viewer>
         </div>
-
+    
         <div class="stream-section">
           <h3>⭐ VIP Notifications (*.vip.*)</h3>
           <app-stream-viewer
@@ -101,7 +105,7 @@ interface RoutingResult {
             [containerHeight]="200">
           </app-stream-viewer>
         </div>
-
+    
         <div class="stream-section">
           <h3>🇪🇺 GDPR Notifications (*.eu.*)</h3>
           <app-stream-viewer
@@ -110,7 +114,7 @@ interface RoutingResult {
             [containerHeight]="200">
           </app-stream-viewer>
         </div>
-
+    
         <div class="stream-section">
           <h3>📋 Cancelled Audit (order.cancelled.*)</h3>
           <app-stream-viewer
@@ -120,7 +124,7 @@ interface RoutingResult {
           </app-stream-viewer>
         </div>
       </div>
-
+    
       <!-- Rules Management Section -->
       <div class="rules-section">
         <div class="rules-header">
@@ -130,144 +134,160 @@ interface RoutingResult {
             <button class="btn btn-reset" (click)="resetToDefaults()" [disabled]="loadingRules">🔄 Reset</button>
           </div>
         </div>
-
+    
         <!-- Error Message -->
-        <div class="error-message" *ngIf="rulesError">
-          <span>⚠️ {{ rulesError }}</span>
-          <button class="retry-btn" (click)="retryLoadRules()">Retry</button>
-        </div>
-
+        @if (rulesError) {
+          <div class="error-message">
+            <span>⚠️ {{ rulesError }}</span>
+            <button class="retry-btn" (click)="retryLoadRules()">Retry</button>
+          </div>
+        }
+    
         <!-- Loading State -->
-        <div class="loading-rules" *ngIf="loadingRules">
-          <span class="loading-spinner"></span>
-          Loading routing rules...
-        </div>
-
+        @if (loadingRules) {
+          <div class="loading-rules">
+            <span class="loading-spinner"></span>
+            Loading routing rules...
+          </div>
+        }
+    
         <!-- Metadata Panel -->
-        <div class="metadata-panel" *ngIf="metadata && !loadingRules">
-          <div class="metadata-item">
-            <span class="meta-label">Max Rules:</span>
-            <input type="number" [(ngModel)]="metadata.maxRules"
-                   (blur)="saveMetadata()" min="1" max="100" class="meta-input">
+        @if (metadata && !loadingRules) {
+          <div class="metadata-panel">
+            <div class="metadata-item">
+              <span class="meta-label">Max Rules:</span>
+              <input type="number" [(ngModel)]="metadata.maxRules"
+                (blur)="saveMetadata()" min="1" max="100" class="meta-input">
+            </div>
+            <div class="metadata-item">
+              <span class="meta-label">Version:</span>
+              <input type="text" [(ngModel)]="metadata.version"
+                (blur)="saveMetadata()" class="meta-input">
+            </div>
+            <div class="metadata-item">
+              <span class="meta-label">Rules:</span>
+              <span class="meta-value">{{ rules.length }}</span>
+            </div>
+            <div class="metadata-item">
+              <span class="meta-label">Updated:</span>
+              <span class="meta-value">{{ metadata.updatedAt | date:'short' }}</span>
+            </div>
           </div>
-          <div class="metadata-item">
-            <span class="meta-label">Version:</span>
-            <input type="text" [(ngModel)]="metadata.version"
-                   (blur)="saveMetadata()" class="meta-input">
-          </div>
-          <div class="metadata-item">
-            <span class="meta-label">Rules:</span>
-            <span class="meta-value">{{ rules.length }}</span>
-          </div>
-          <div class="metadata-item">
-            <span class="meta-label">Updated:</span>
-            <span class="meta-value">{{ metadata.updatedAt | date:'short' }}</span>
-          </div>
-        </div>
-
+        }
+    
         <!-- Rules Table -->
-        <div class="rules-table-container" *ngIf="!loadingRules && rules.length > 0">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Pattern (Lua)</th>
-                <th>Destination</th>
-                <th>Description</th>
-                <th>Priority</th>
-                <th>Enabled</th>
-                <th title="Stop evaluating other rules if this rule matches">Stop</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let rule of rules" [class.disabled]="!rule.enabled" [class.stop-rule]="rule.stopOnMatch">
-                <td class="rule-id">{{ rule.id }}</td>
-                <td class="rule-pattern"><code>{{ rule.pattern }}</code></td>
-                <td class="rule-destination">{{ rule.destination }}</td>
-                <td class="rule-description">{{ rule.description }}</td>
-                <td class="rule-priority">{{ rule.priority }}</td>
-                <td class="rule-toggle">
-                  <input type="checkbox" [(ngModel)]="rule.enabled"
-                         (change)="toggleRuleEnabled(rule)">
-                </td>
-                <td class="rule-toggle">
-                  <input type="checkbox" [(ngModel)]="rule.stopOnMatch"
-                         (change)="saveRule(rule)" title="Stop evaluating rules after match">
-                </td>
-                <td class="rule-actions">
-                  <button class="action-btn edit" (click)="editRule(rule)" title="Edit">✏️</button>
-                  <button class="action-btn delete" (click)="deleteRule(rule)" title="Delete">🗑️</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Empty State -->
-        <div class="loading-rules" *ngIf="!loadingRules && rules.length === 0 && !rulesError">
-          No routing rules configured. Click "Reset" to load default rules.
-        </div>
-      </div>
-
-      <!-- Rule Edit Modal -->
-      <div class="modal-overlay" *ngIf="showRuleModal" (click)="closeRuleModal()">
-        <div class="modal-content" (click)="$event.stopPropagation()">
-          <div class="modal-header">
-            <h3>{{ editingRule?.id ? 'Edit Rule' : 'Add Rule' }}</h3>
-            <button class="close-btn" (click)="closeRuleModal()">✕</button>
+        @if (!loadingRules && rules.length > 0) {
+          <div class="rules-table-container">
+            <table class="rules-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Pattern (Lua)</th>
+                  <th>Destination</th>
+                  <th>Description</th>
+                  <th>Priority</th>
+                  <th>Enabled</th>
+                  <th title="Stop evaluating other rules if this rule matches">Stop</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (rule of rules; track rule) {
+                  <tr [class.disabled]="!rule.enabled" [class.stop-rule]="rule.stopOnMatch">
+                    <td class="rule-id">{{ rule.id }}</td>
+                    <td class="rule-pattern"><code>{{ rule.pattern }}</code></td>
+                    <td class="rule-destination">{{ rule.destination }}</td>
+                    <td class="rule-description">{{ rule.description }}</td>
+                    <td class="rule-priority">{{ rule.priority }}</td>
+                    <td class="rule-toggle">
+                      <input type="checkbox" [(ngModel)]="rule.enabled"
+                        (change)="toggleRuleEnabled(rule)">
+                    </td>
+                    <td class="rule-toggle">
+                      <input type="checkbox" [(ngModel)]="rule.stopOnMatch"
+                        (change)="saveRule(rule)" title="Stop evaluating rules after match">
+                    </td>
+                    <td class="rule-actions">
+                      <button class="action-btn edit" (click)="editRule(rule)" title="Edit">✏️</button>
+                      <button class="action-btn delete" (click)="deleteRule(rule)" title="Delete">🗑️</button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
           </div>
-          <div class="modal-body" *ngIf="editingRule">
-            <div class="form-group">
-              <label>Rule ID *</label>
-              <input type="text" [(ngModel)]="editingRule.id"
-                     [disabled]="isEditing" placeholder="e.g., 100">
+        }
+    
+        <!-- Empty State -->
+        @if (!loadingRules && rules.length === 0 && !rulesError) {
+          <div class="loading-rules">
+            No routing rules configured. Click "Reset" to load default rules.
+          </div>
+        }
+      </div>
+    
+      <!-- Rule Edit Modal -->
+      @if (showRuleModal) {
+        <div class="modal-overlay" (click)="onOverlayClick($event)" role="button" tabindex="0" aria-label="Close dialog" (keydown.escape)="closeRuleModal()" (keydown.enter)="closeRuleModal()" (keydown.space)="closeRuleModal()">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3>{{ editingRule?.id ? 'Edit Rule' : 'Add Rule' }}</h3>
+              <button class="close-btn" (click)="closeRuleModal()">✕</button>
             </div>
-            <div class="form-group">
-              <label>Lua Pattern *</label>
-              <input type="text" [(ngModel)]="editingRule.pattern"
-                     placeholder="e.g., ^order%.">
-              <small>Lua patterns: ^ start, $ end, %. literal dot, %a letter, %d digit</small>
-            </div>
-            <div class="form-group">
-              <label>Destination Stream *</label>
-              <input type="text" [(ngModel)]="editingRule.destination"
-                     placeholder="e.g., events.order.v1">
-            </div>
-            <div class="form-group">
-              <label>Description</label>
-              <input type="text" [(ngModel)]="editingRule.description"
-                     placeholder="Describe this rule">
-            </div>
-            <div class="form-row">
-              <div class="form-group half">
-                <label>Priority</label>
-                <input type="number" [(ngModel)]="editingRule.priority" min="1" max="999">
-                <small>Lower = higher priority</small>
-              </div>
-              <div class="form-group half">
-                <label>Options</label>
-                <div class="checkbox-group">
-                  <label><input type="checkbox" [(ngModel)]="editingRule.enabled"> Enabled</label>
-                  <label><input type="checkbox" [(ngModel)]="editingRule.stopOnMatch"> Stop on Match</label>
+            @if (editingRule) {
+              <div class="modal-body">
+                <div class="form-group">
+                  <label for="tr-rule-id">Rule ID *</label>
+                  <input id="tr-rule-id" type="text" [(ngModel)]="editingRule.id"
+                    [disabled]="isEditing" placeholder="e.g., 100">
+                </div>
+                <div class="form-group">
+                  <label for="tr-rule-pattern">Lua Pattern *</label>
+                  <input id="tr-rule-pattern" type="text" [(ngModel)]="editingRule.pattern"
+                    placeholder="e.g., ^order%.">
+                  <small>Lua patterns: ^ start, $ end, %. literal dot, %a letter, %d digit</small>
+                </div>
+                <div class="form-group">
+                  <label for="tr-rule-destination">Destination Stream *</label>
+                  <input id="tr-rule-destination" type="text" [(ngModel)]="editingRule.destination"
+                    placeholder="e.g., events.order.v1">
+                </div>
+                <div class="form-group">
+                  <label for="tr-rule-description">Description</label>
+                  <input id="tr-rule-description" type="text" [(ngModel)]="editingRule.description"
+                    placeholder="Describe this rule">
+                </div>
+                <div class="form-row">
+                  <div class="form-group half">
+                    <label for="tr-rule-priority">Priority</label>
+                    <input id="tr-rule-priority" type="number" [(ngModel)]="editingRule.priority" min="1" max="999">
+                    <small>Lower = higher priority</small>
+                  </div>
+                  <div class="form-group half">
+                    <span class="group-label">Options</span>
+                    <div class="checkbox-group">
+                      <label><input type="checkbox" [(ngModel)]="editingRule.enabled"> Enabled</label>
+                      <label><input type="checkbox" [(ngModel)]="editingRule.stopOnMatch"> Stop on Match</label>
+                    </div>
+                  </div>
                 </div>
               </div>
+            }
+            <div class="modal-footer">
+              <button class="btn btn-cancel" (click)="closeRuleModal()">Cancel</button>
+              <button class="btn btn-save" (click)="saveEditingRule()">Save Rule</button>
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-cancel" (click)="closeRuleModal()">Cancel</button>
-            <button class="btn btn-save" (click)="saveEditingRule()">Save Rule</button>
-          </div>
         </div>
-      </div>
-
+      }
+    
       <!-- Architecture Diagram -->
       <app-mermaid-diagram
         title="View Architecture & Sequence Diagrams"
         [architectureDiagram]="diagrams.keyRouting.architecture"
         [sequenceDiagram]="diagrams.keyRouting.sequence">
       </app-mermaid-diagram>
-
+    
       <!-- Info Box -->
       <div class="info-box">
         <div class="info-header">
@@ -287,7 +307,7 @@ interface RoutingResult {
               <li><strong>Atomic</strong> - Single Redis transaction, no partial routing</li>
             </ul>
           </div>
-
+    
           <!-- Stop on Match Explanation -->
           <div class="info-section">
             <h4>🛑 Stop on Match (like Gmail/Outlook rules)</h4>
@@ -299,7 +319,7 @@ interface RoutingResult {
               <li>Without this flag: message can match multiple rules (multi-destination)</li>
             </ul>
           </div>
-
+    
           <!-- Advantages -->
           <div class="info-section">
             <h4>🚀 Advantages vs RabbitMQ/ActiveMQ</h4>
@@ -312,7 +332,7 @@ interface RoutingResult {
               <li><strong>No message loss</strong> - Redis Streams persistence</li>
             </ul>
           </div>
-
+    
           <!-- Lua Patterns -->
           <div class="info-section">
             <h4>🔧 Lua Pattern Syntax</h4>
@@ -323,7 +343,7 @@ interface RoutingResult {
               <li><code>^order%.%a+ed$</code> → order + past tense verb</li>
             </ul>
           </div>
-
+    
           <!-- Pro Tip -->
           <div class="info-section tip-section">
             <h4>💡 Pro Tip: When NOT to use Lua Functions</h4>
@@ -337,7 +357,7 @@ interface RoutingResult {
         </div>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     .topic-routing-container {
       padding: 20px;
@@ -824,7 +844,7 @@ interface RoutingResult {
       margin-bottom: 16px;
     }
 
-    .form-group label {
+    .form-group label, .form-group .group-label {
       display: block;
       font-size: 13px;
       font-weight: 600;
@@ -892,7 +912,7 @@ interface RoutingResult {
     }
   `]
 })
-export class TopicRoutingComponent implements OnInit, OnDestroy {
+export class TopicRoutingComponent implements OnInit {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   private rulesService = inject(RoutingRulesService);
@@ -940,8 +960,6 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
     this.loadRules();
     this.loadMetadata();
   }
-
-  ngOnDestroy(): void {}
 
   // =========================================================================
   // Rules CRUD
@@ -995,6 +1013,17 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
     this.editingRule = { ...rule };
     this.isEditing = true;
     this.showRuleModal = true;
+  }
+
+  /**
+   * Closes only when the backdrop itself is clicked. Checking the target here is what lets the
+   * inner card drop its `$event.stopPropagation()` click sink -- a handler that existed only to
+   * cancel this one, and that no keyboard user could ever reach.
+   */
+  onOverlayClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      this.closeRuleModal();
+    }
   }
 
   closeRuleModal(): void {

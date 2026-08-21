@@ -19,6 +19,22 @@ export interface DLQEvent {
 }
 
 /**
+ * Pub/Sub events travel on the same socket as {@link DLQEvent} (backend `PubSubEvent`).
+ * They carry a `channel` instead of a stream, and the pattern-routing demo adds `_pattern` /
+ * `_subscriber` keys inside the payload.
+ */
+export interface PubSubEvent {
+  eventType: string;
+  channel?: string;
+  payload?: Record<string, string>;
+  details?: string;
+  timestamp?: string;
+}
+
+/** Anything the backend can push down the socket. */
+export type StreamEvent = DLQEvent | PubSubEvent;
+
+/**
  * WebSocket service for real-time communication with Spring Boot backend.
  * Uses SockJS for WebSocket connection with fallback support.
  */
@@ -26,8 +42,9 @@ export interface DLQEvent {
   providedIn: 'root'
 })
 export class WebSocketService {
-  private socket: any = null; // SockJS doesn't implement WebSocket interface fully
-  private eventSubject = new Subject<DLQEvent>();
+  // SockJS does not implement the WebSocket interface fully, so use its own instance type.
+  private socket: InstanceType<typeof SockJS> | null = null;
+  private eventSubject = new Subject<StreamEvent>();
   private connectionStatus = new Subject<boolean>();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 1000; // keep retrying; a demo left open shouldn't silently go dead
@@ -128,7 +145,7 @@ export class WebSocketService {
   /**
    * Get observable for WebSocket events
    */
-  getEvents(): Observable<DLQEvent> {
+  getEvents(): Observable<StreamEvent> {
     return this.eventSubject.asObservable();
   }
 

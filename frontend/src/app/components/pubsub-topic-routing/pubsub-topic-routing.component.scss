@@ -29,7 +29,7 @@
 .message-count { font-size: 14px; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 12px; }
 .panel-content { padding: 16px; }
 .form-group { margin-bottom: 16px; }
-.form-group label { display: block; font-size: 14px; font-weight: 500; color: #475569; margin-bottom: 6px; }
+.form-group label, .form-group .group-label { display: block; font-size: 14px; font-weight: 500; color: #475569; margin-bottom: 6px; }
 .form-select, .form-input { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
 .form-select:focus, .form-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
 .payload-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }

@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
@@ -27,10 +27,22 @@ interface ChartData {
   csv_completed: number;
 }
 
+/** `GET /config` and `GET /progress` both answer flat maps of counters keyed by job type. */
+type CounterMap = Record<string, number>;
+
+interface LogsResponse {
+  submitted?: string[];
+  completed?: string[];
+}
+
+interface SubmitResponse {
+  submitted: number;
+}
+
 @Component({
   selector: 'app-token-bucket',
   standalone: true,
-  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
+  imports: [FormsModule, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './token-bucket.component.html',
   styleUrl: './token-bucket.component.scss'
@@ -86,12 +98,12 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   }
 
   loadConfig(): void {
-    this.http.get<any>(`${this.apiUrl}/config`).subscribe({
+    this.http.get<CounterMap>(`${this.apiUrl}/config`).subscribe({
       next: (config) => {
         const updated = this.jobTypes().map(jt => ({
           ...jt,
-          maxConcurrency: config[jt.name + '_max'] || jt.defaultMax,
-          running: config[jt.name + '_running'] || 0
+          maxConcurrency: config[`${jt.name}_max`] || jt.defaultMax,
+          running: config[`${jt.name}_running`] || 0
         }));
         this.jobTypes.set(updated);
         this.cdr.markForCheck();
@@ -100,15 +112,15 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   }
 
   loadProgress(): void {
-    this.http.get<any>(`${this.apiUrl}/progress`).subscribe({
+    this.http.get<CounterMap>(`${this.apiUrl}/progress`).subscribe({
       next: (data) => {
         this.chartData.set({
-          payment: data.payment || 0,
-          email: data.email || 0,
-          csv: data.csv || 0,
-          payment_completed: data.payment_completed || 0,
-          email_completed: data.email_completed || 0,
-          csv_completed: data.csv_completed || 0
+          payment: data['payment'] || 0,
+          email: data['email'] || 0,
+          csv: data['csv'] || 0,
+          payment_completed: data['payment_completed'] || 0,
+          email_completed: data['email_completed'] || 0,
+          csv_completed: data['csv_completed'] || 0
         });
         this.cdr.markForCheck();
       }
@@ -116,7 +128,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   }
 
   loadLogs(): void {
-    this.http.get<any>(`${this.apiUrl}/logs`).subscribe({
+    this.http.get<LogsResponse>(`${this.apiUrl}/logs`).subscribe({
       next: (data) => {
         this.submitLogs.set(data.submitted || []);
         this.completeLogs.set(data.completed || []);
@@ -126,7 +138,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   }
 
   updateMaxConcurrency(jobType: JobType, value: number): void {
-    this.http.put<any>(`${this.apiUrl}/config`, { type: jobType.name, maxConcurrency: value }).subscribe({
+    this.http.put<void>(`${this.apiUrl}/config`, { type: jobType.name, maxConcurrency: value }).subscribe({
       next: () => {
         const updated = this.jobTypes().map(jt => 
           jt.name === jobType.name ? { ...jt, maxConcurrency: value } : jt
@@ -147,7 +159,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
     let completed = 0;
 
     types.forEach(jt => {
-      this.http.post<any>(`${this.apiUrl}/submit`, { type: jt.name, count: jt.jobCount }).subscribe({
+      this.http.post<SubmitResponse>(`${this.apiUrl}/submit`, { type: jt.name, count: jt.jobCount }).subscribe({
         next: (response) => {
           totalSubmitted += response.submitted;
           completed++;
@@ -172,7 +184,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   }
 
   clearAll(): void {
-    this.http.delete<any>(`${this.apiUrl}/clear`).subscribe({
+    this.http.delete<void>(`${this.apiUrl}/clear`).subscribe({
       next: () => {
         this.refreshService.triggerRefresh();
         this.submitMessage.set('');
@@ -189,12 +201,12 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
 
   getRunningCount(typeName: string): number {
     const data = this.chartData();
-    return (data as any)[typeName] || 0;
+    return data[typeName as keyof ChartData] || 0;
   }
 
   getCompletedCount(typeName: string): number {
     const data = this.chartData();
-    return (data as any)[typeName + '_completed'] || 0;
+    return data[`${typeName}_completed` as keyof ChartData] || 0;
   }
 
   getTotalCompleted(): number {

@@ -1,6 +1,6 @@
 import { Component, Input, OnInit, OnDestroy, signal, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { WebSocketService } from '../../services/websocket.service';
+
+import { WebSocketService, PubSubEvent } from '../../services/websocket.service';
 import { Subscription } from 'rxjs';
 
 export interface PubSubMessage {
@@ -18,7 +18,7 @@ export interface PubSubMessage {
 @Component({
   selector: 'app-pubsub-subscriber',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="subscriber-container">
       <div class="subscriber-header">
@@ -31,30 +31,36 @@ export interface PubSubMessage {
         </div>
         <span class="message-count">{{ messages().length }} messages</span>
       </div>
-
+    
       <div class="messages-container">
-        <div *ngIf="messages().length === 0" class="empty-state">
-          <div class="empty-icon">📭</div>
-          <p class="empty-text">No messages received yet</p>
-          <p class="empty-hint">Waiting for published messages...</p>
-        </div>
-
-        <div *ngFor="let message of messages()" class="message-card">
-          <div class="message-header">
-            <span class="message-channel">{{ message.channel }}</span>
-            <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+        @if (messages().length === 0) {
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <p class="empty-text">No messages received yet</p>
+            <p class="empty-hint">Waiting for published messages...</p>
           </div>
-          <div class="message-payload">
-            <div *ngFor="let field of getFields(message.payload)" class="payload-field">
-              <span class="field-key">{{ field.key }}:</span>
-              <span class="field-value">{{ field.value }}</span>
+        }
+    
+        @for (message of messages(); track message) {
+          <div class="message-card">
+            <div class="message-header">
+              <span class="message-channel">{{ message.channel }}</span>
+              <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+            </div>
+            <div class="message-payload">
+              @for (field of getFields(message.payload); track field) {
+                <div class="payload-field">
+                  <span class="field-key">{{ field.key }}:</span>
+                  <span class="field-value">{{ field.value }}</span>
+                </div>
+              }
             </div>
           </div>
-        </div>
+        }
       </div>
     </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+    `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .subscriber-container {
       display: flex;
@@ -239,8 +245,8 @@ export interface PubSubMessage {
   `]
 })
 export class PubsubSubscriberComponent implements OnInit, OnDestroy {
-  @Input() title: string = 'Subscriber';
-  @Input() channel: string = 'fire-and-forget';
+  @Input() title = 'Subscriber';
+  @Input() channel = 'fire-and-forget';
 
   private wsService = inject(WebSocketService);
   private subscription?: Subscription;
@@ -251,12 +257,12 @@ export class PubsubSubscriberComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     // Subscribe to WebSocket events
-    this.subscription = this.wsService.getEvents().subscribe((event: any) => {
+    this.subscription = this.wsService.getEvents().subscribe((event: PubSubEvent) => {
       if (event.eventType === 'MESSAGE_RECEIVED' && event.channel === this.channel) {
         this.messages.update(msgs => [{
-          channel: event.channel,
-          payload: event.payload,
-          timestamp: event.timestamp
+          channel: event.channel ?? this.channel,
+          payload: event.payload ?? {},
+          timestamp: event.timestamp ?? new Date().toISOString()
         }, ...msgs].slice(0, 50)); // Keep last 50 messages
       }
     });
@@ -275,7 +281,7 @@ export class PubsubSubscriberComponent implements OnInit, OnDestroy {
     this.connectionSubscription?.unsubscribe();
   }
 
-  getFields(payload: Record<string, string>): Array<{key: string, value: string}> {
+  getFields(payload: Record<string, string>): {key: string, value: string}[] {
     return Object.entries(payload).map(([key, value]) => ({ key, value }));
   }
 

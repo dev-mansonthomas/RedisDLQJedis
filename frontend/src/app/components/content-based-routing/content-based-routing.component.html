@@ -15,14 +15,14 @@
         </div>
         <div class="panel-content">
           <div class="form-group">
-            <label>Payment ID <span class="optional">(auto-generated if empty)</span></label>
-            <input type="text" [ngModel]="paymentId()" (ngModelChange)="paymentId.set($event)" placeholder="PAY-XXXXXXXX" class="form-input">
+            <label for="cbr-payment-id">Payment ID <span class="optional">(auto-generated if empty)</span></label>
+            <input id="cbr-payment-id" type="text" [ngModel]="paymentId()" (ngModelChange)="paymentId.set($event)" placeholder="PAY-XXXXXXXX" class="form-input">
           </div>
 
           <div class="form-group">
-            <label>Amount ($)</label>
+            <label for="cbr-amount">Amount ($)</label>
             <div class="amount-input-row">
-              <input type="number" [ngModel]="amount()" (ngModelChange)="amount.set($event)" class="form-input amount-input" min="0" step="0.01">
+              <input id="cbr-amount" type="number" [ngModel]="amount()" (ngModelChange)="amount.set($event)" class="form-input amount-input" min="0" step="0.01">
               <span class="target-badge" [style.background]="getTargetColor()">→ {{ getTargetStream().split('.')[1] }}</span>
             </div>
             <div class="preset-buttons">
@@ -36,14 +36,14 @@
 
           <div class="form-row">
             <div class="form-group half">
-              <label>Country</label>
-              <select [ngModel]="country()" (ngModelChange)="country.set($event)" class="form-select">
+              <label for="cbr-country">Country</label>
+              <select id="cbr-country" [ngModel]="country()" (ngModelChange)="country.set($event)" class="form-select">
                 @for (c of countries; track c) { <option [value]="c">{{ c }}</option> }
               </select>
             </div>
             <div class="form-group half">
-              <label>Method</label>
-              <select [ngModel]="method()" (ngModelChange)="method.set($event)" class="form-select">
+              <label for="cbr-method">Method</label>
+              <select id="cbr-method" [ngModel]="method()" (ngModelChange)="method.set($event)" class="form-select">
                 @for (m of methods; track m) { <option [value]="m">{{ m }}</option> }
               </select>
             </div>

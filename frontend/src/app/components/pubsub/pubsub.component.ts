@@ -1,5 +1,5 @@
 import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { PubsubProducerComponent } from '../pubsub-producer/pubsub-producer.component';
 import { PubsubSubscriberComponent } from '../pubsub-subscriber/pubsub-subscriber.component';
 import { WebSocketService } from '../../services/websocket.service';
@@ -17,7 +17,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
 @Component({
   selector: 'app-pubsub',
   standalone: true,
-  imports: [CommonModule, PubsubProducerComponent, PubsubSubscriberComponent, MermaidDiagramComponent],
+  imports: [PubsubProducerComponent, PubsubSubscriberComponent, MermaidDiagramComponent],
   template: `
     <div class="pubsub-container">
       <div class="page-header">
@@ -97,7 +97,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .pubsub-container {
       max-width: 1400px;

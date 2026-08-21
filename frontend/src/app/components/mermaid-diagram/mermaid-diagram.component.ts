@@ -1,5 +1,5 @@
 import { Component, Input, OnInit, OnChanges, ElementRef, ViewChild, SimpleChanges, AfterViewInit, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import mermaid from 'mermaid';
 
 /**
@@ -9,32 +9,34 @@ import mermaid from 'mermaid';
 @Component({
   selector: 'app-mermaid-diagram',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="diagram-container" [class.expanded]="isExpanded">
       <button class="toggle-btn" (click)="toggleDiagram()">
         <span class="toggle-icon">{{ isExpanded ? '▼' : '▶' }}</span>
         <span class="toggle-text">📊 {{ title }}</span>
       </button>
-      
-      <div class="diagram-content" *ngIf="isExpanded">
-        <div class="diagram-tabs">
-          <button 
-            *ngFor="let tab of tabs" 
-            class="tab-btn"
-            [class.active]="activeTab === tab.id"
-            (click)="setActiveTab(tab.id)">
-            {{ tab.label }}
-          </button>
+    
+      @if (isExpanded) {
+        <div class="diagram-content">
+          <div class="diagram-tabs">
+            @for (tab of tabs; track tab) {
+              <button
+                class="tab-btn"
+                [class.active]="activeTab === tab.id"
+                (click)="setActiveTab(tab.id)">
+                {{ tab.label }}
+              </button>
+            }
+          </div>
+          <div class="diagram-wrapper">
+            <div #mermaidContainer class="mermaid-container"></div>
+          </div>
         </div>
-        
-        <div class="diagram-wrapper">
-          <div #mermaidContainer class="mermaid-container"></div>
-        </div>
-      </div>
+      }
     </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+    `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .diagram-container {
       margin-top: 16px;

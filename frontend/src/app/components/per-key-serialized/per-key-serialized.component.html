@@ -14,7 +14,7 @@
         <div class="panel-content">
           <div class="jobs-list">
             @for (job of jobs(); track $index) {
-              <div class="job-item" [class.selected]="job.selected" (click)="toggleJob($index)">
+              <div class="job-item" [class.selected]="job.selected" (click)="toggleJob($index)" role="button" tabindex="0" (keydown.enter)="toggleJob($index)" (keydown.space)="toggleJob($index)" [attr.aria-pressed]="job.selected">
                 <input type="checkbox" [checked]="job.selected" (click)="$event.stopPropagation()">
                 <span class="order-badge" [style.background-color]="getOrderColor(job.orderId)">{{ job.orderId }}</span>
                 <span class="action-name">{{ job.action }}</span>
