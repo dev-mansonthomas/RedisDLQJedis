@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnChanges, ElementRef, ViewChild, SimpleChanges, AfterViewInit } from '@angular/core';
+import { Component, Input, OnInit, OnChanges, ElementRef, ViewChild, SimpleChanges, AfterViewInit, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import mermaid from 'mermaid';
 
@@ -34,6 +34,7 @@ import mermaid from 'mermaid';
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .diagram-container {
       margin-top: 16px;

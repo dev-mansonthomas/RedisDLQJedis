@@ -1,6 +1,7 @@
 import {
   Component, OnDestroy, OnInit, signal, computed, inject,
-  ElementRef, ViewChild, AfterViewChecked
+  ElementRef, ViewChild, AfterViewChecked,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -39,6 +40,7 @@ interface LlmChatWsEvent {
   standalone: true,
   imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   templateUrl: './llm-chat.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./llm-chat.component.scss']
 })
 export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {

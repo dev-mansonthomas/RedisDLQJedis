@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PubsubProducerComponent } from '../pubsub-producer/pubsub-producer.component';
 import { PubsubSubscriberComponent } from '../pubsub-subscriber/pubsub-subscriber.component';
@@ -97,6 +97,7 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .pubsub-container {
       max-width: 1400px;

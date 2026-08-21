@@ -1,6 +1,6 @@
 package com.redis.patterns.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
 import com.redis.patterns.dto.LlmChatEvent;
 import com.redis.patterns.dto.PubSubEvent;
