@@ -41,15 +41,11 @@
   (latest `8.0.0`); the Python/Node pins float and already resolve to the latest. They still run, so
   this is a chore, not a bug. → Bump in one pass **after** post #2 ships, and re-run
   `blog/dlq-redis-streams/verify.sh`; the NRedisStack and Rust jumps cross majors, so expect API edits.
-- 🟠 **No frontend test runner** — `angular.json` has no `test` target (only `build`/`lint`/`serve`), so
-  `npm test` fails, and there are **0 `*.spec.ts`**. Consequence: pure logic gets verified by driving a
-  real browser (`computeRate()`, the "max 4 columns" grid rule) instead of by unit test. Good news
-  (verified 2026-08-04): `@angular/build@21.0.0` is already installed and ships a `unit-test` builder
-  whose default runner is Vitest, and it generates the TestBed bootstrap itself — so it is `npm i -D
-  vitest jsdom` plus a 1-line target. → Full plan, traps and effort:
-  [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md).
-  *(Backend side is done: **139 tests as of 2026-08-21, covering all 12 patterns**. The "Running
-  Tests" section of `augmentcode/startup_instructions.md` remains aspirational.)*
+- ✅ **Frontend test runner shipped** — *done 2026-08-21*: `npm test` runs **18 Vitest specs** through
+  `@angular/build:unit-test`, with `tsconfig.spec.json` wired so specs are actually type-checked
+  (verified by planting a type error and watching the run fail). Covers slice A of
+  [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) — `computeRate`'s 6 cases — plus the
+  OnPush guards below. Slice C (browser mode for the 4-column grid rule) is still open.
 - 🟠 **No CI at all** — no `.github/` directory, so nothing enforces tests, lint or build on a PR, and the
   `git-pr-merge` flow waits on a CI that does not exist. → A workflow running `mvn clean test` +
   `npm run lint` + `npm test`; note the Redis integration tests **skip** without Docker, so a runner
@@ -173,12 +169,16 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 
 ## Found while upgrading the frontend (2026-08-21)
 
-- 🟡 **OnPush is now load-bearing and nothing guards it.** The 11 components converted to
-  `ChangeDetectionStrategy.OnPush` refresh only because their mutable template state sits in
-  `signal()`s (or changes from their own template events). A future contributor adding a plain field
-  mutated from a `subscribe`/`setInterval` will get a view that silently stops updating — the exact
-  failure mode no test can catch here. → The frontend test runner
-  ([`specs/frontend-test-runner.md`](specs/frontend-test-runner.md)) is now the highest-value gap.
+- ✅ **OnPush is guarded where it can be** — *done 2026-08-21*. `pubsub-subscriber` and `llm-chat` have
+  specs that drive a WebSocket event through a stub and assert the **DOM** changed; both were proved by
+  injecting the real regression (mutating the signal in place instead of replacing it) and confirming
+  they go red. The llm-chat one pins token-by-token growth, i.e. the exact symptom reported on the LLM
+  Chat page.
+  **Finding worth keeping:** the failure is only observable when no other signal is written in the same
+  turn. `dlq-actions` turned out to be unguardable for this reason — turning its `statusMessage` into a
+  plain field leaves its specs green, because `isProcessing`/`isError` are written in the same callback
+  and mark the view dirty anyway. So the remaining exposure is narrow but real: a *new* component (or a
+  new code path) whose repaint hangs on a single signal. → When adding one, add its guard.
 - 🟡 **`request-reply` still trusts the WebSocket payload shape.** `handleResponse` is typed
   against a hand-written `ResponsePayload` interface that mirrors the backend by convention only;
   nothing fails if the backend DTO drifts. Same for the new `PubSubEvent` frontend interface.

@@ -51,16 +51,27 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** still none — `angular.json` has no `test` target, so `ng test` has no builder.
-  `@angular/build` is now a **direct** dependency (it replaced `@angular-devkit/build-angular`), so its
-  `unit-test` builder (Vitest) is one target away: a 1-line target + `npm i -D vitest jsdom`. Plan, traps and effort:
-  [`docs/specs/frontend-test-runner.md`](docs/specs/frontend-test-runner.md).
+- **Frontend tests:** `cd frontend && npm test` → **18 tests** (Vitest via `@angular/build:unit-test`,
+  target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
+  bundles them unchecked). Four traps, all measured, do not rediscover them:
+  1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
+     unconditionally and hides the very bug you are guarding against. Use
+     `fixture.autoDetectChanges(true)` + `settle()` (`src/app/testing/change-detection.ts`).
+  2. **`fixture.whenStable()` never resolves** for a component owning a recurring timer — LLM Chat
+     polls REST every 1500 ms, so the spec times out at 5s.
+  3. **`vi.useFakeTimers()` freezes Angular's scheduler**: signals update, the DOM stays stale, every
+     case fails for the wrong reason.
+  4. **jsdom has no WebSocket** — always inject `WebSocketServiceStub`, never let a spec build SockJS.
 - **Lint:** `cd frontend && npm run lint` → **0 errors** (was 145 under angular-eslint 22). Keep it
   there: templates use the built-in control flow (`@if`/`@for`, not `*ngIf`), every `<label>` is
   associated with its control (a caption that labels a *group* is a `<span class="group-label">`, not a
   label), clickable non-button elements carry `role`/`tabindex`/`keydown`, and **components are
-  `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, or the view will not
-  refresh.
+  `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, and **replace** its
+  value rather than mutating it in place, or the view will not refresh. Guarded by
+  `pubsub-subscriber.component.spec.ts` and `llm-chat.component.spec.ts`; both were verified by
+  injecting the bug and watching them go red. Note the failure only shows when *no* other signal is
+  written in the same turn — a co-located signal write marks the view dirty and repaints the broken
+  field along with it, which is why `dlq-actions` cannot be guarded this way.
 
 ## Layout
 
