@@ -176,7 +176,8 @@ end)
 --
 -- KEYS:
 --   [1] timeout_key - Redis key for timeout tracking (e.g., "order.holdInventory.request.timeout.v1:$correlationId")
---   [2] shadow_key - Redis key for shadow timeout tracking (e.g., "order.holdInventory.request.timeout.shadow.v1:$correlationId")
+--   [2] shadow_key - Redis key for shadow timeout tracking
+--                    (e.g., "order.holdInventory.request.timeout.shadow.v1:$correlationId")
 --   [3] stream_name - The request stream name (e.g., "order.holdInventory.v1")
 --
 -- ARGS:

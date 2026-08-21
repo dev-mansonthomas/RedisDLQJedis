@@ -46,23 +46,14 @@
   (verified by planting a type error and watching the run fail). Covers slice A of
   [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) — `computeRate`'s 6 cases — plus the
   OnPush guards below. Slice C (browser mode for the 4-column grid rule) is still open.
-- 🟠 **No CI at all** — no `.github/` directory, so nothing enforces tests, lint or build on a PR, and the
-  `git-pr-merge` flow waits on a CI that does not exist. → A workflow running `mvn clean test` +
-  `npm run lint` + `npm test`; note the Redis integration tests **skip** without Docker, so a runner
-  without Docker would go green while testing almost nothing. See
-  [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) ("Adjacent, not included").
-- ✅ **Frontend lint is clean** — *done 2026-08-21*: **145 → 0**. The count went up before it went
-  down: angular-eslint 22 adds `prefer-control-flow`, so the 76 became 145. Fixed, not silenced —
-  62 template blocks migrated to `@if`/`@for` with the official `@angular/core:control-flow`
-  schematic, 26 `any` replaced by real response types (which exposed that the pub/sub pages receive
-  `PubSubEvent`, not `DLQEvent` — the socket carries a union, and `any` was hiding it), 19 labels
-  associated with their control, 14 a11y errors on clickable `div`s given `role`/`tabindex`/keyboard
-  handlers, and the 11 components flagged `prefer-on-push` converted to **OnPush**. No rule was
-  disabled. Verified in a real browser: 20/20 interactive checks, 0 console errors.
-- ✅ **Backend builds & runs locally in this VM** — *resolved 2026-06-29*: Java 21 + Maven 3.9.16
-  are now installed (host VM provisioning), so `mvn compile`/`mvn package` work directly; the Docker
-  multi-stage path also works. Lua lint available via `luacheck`.
-
+- ✅ **CI exists** — *done 2026-08-21*, `.github/workflows/ci.yml`. Three jobs (backend / frontend /
+  lua) on every PR and every push to `main`. The documented trap is handled head-on: the backend job
+  refuses to pass if **any** test was skipped, because the Redis integration tests assume themselves
+  away when Docker is missing — a Docker-less runner would otherwise report green while testing almost
+  nothing. That gate was verified by planting `skipped="8"` in a surefire report and confirming it
+  fails with the offending class named. It also floors the suite at 100 tests (139 today). Every step
+  was run locally from a clean `npm ci` before being written into the workflow.
+  Still manual, deliberately: the browser-mode layout rule (slice C) and the 12-page walkthrough.
 ### Toolchain inventory (required vs VM, updated 2026-06-29)
 
 | Tool | Required (source) | VM | Status |

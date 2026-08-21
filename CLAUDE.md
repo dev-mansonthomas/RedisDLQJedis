@@ -62,6 +62,14 @@ observability over hardening.
   3. **`vi.useFakeTimers()` freezes Angular's scheduler**: signals update, the DOM stays stale, every
      case fails for the wrong reason.
   4. **jsdom has no WebSocket** — always inject `WebSocketServiceStub`, never let a spec build SockJS.
+- **CI:** `.github/workflows/ci.yml` — three jobs on every PR and every push to `main`: **backend**
+  (Java 21, `mvn clean test`, then a gate that **fails if any test was skipped**), **frontend**
+  (`npm ci` → lint → `npm test` → build → `npm audit --audit-level=moderate`), **lua** (`luacheck`,
+  zero warnings tolerated). The skip gate is the point: the Redis integration tests *assume themselves
+  away* without Docker, so a runner without it would go green having tested almost nothing. It also
+  floors the total at 100 tests — raise that floor deliberately, never lower it by accident. Not
+  covered: the browser-mode layout rule (slice C of the frontend-test-runner spec) and the 12-page
+  browser walkthrough, both still manual.
 - **Lint:** `cd frontend && npm run lint` → **0 errors** (was 145 under angular-eslint 22). Keep it
   there: templates use the built-in control flow (`@if`/`@for`, not `*ngIf`), every `<label>` is
   associated with its control (a caption that labels a *group* is a `<span class="group-label">`, not a
