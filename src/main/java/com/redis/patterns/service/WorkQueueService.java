@@ -270,7 +270,7 @@ public class WorkQueueService implements CommandLineRunner {
                     log.info("Job {} routed to DLQ with ID {}", originalId, dlqId);
 
                     webSocketEventService.broadcastEvent(DLQEvent.builder()
-                        .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                        .eventType(DLQEvent.EventType.MESSAGE_ACKED)
                         .messageId(originalId)
                         .streamName(JOB_STREAM)
                         .details("Job routed to DLQ (max deliveries reached)")
@@ -327,7 +327,7 @@ public class WorkQueueService implements CommandLineRunner {
 
             // Broadcast deletion from job stream
             webSocketEventService.broadcastEvent(DLQEvent.builder()
-                .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                .eventType(DLQEvent.EventType.MESSAGE_ACKED)
                 .messageId(messageId)
                 .streamName(JOB_STREAM)
                 .details("Job completed by worker-" + workerId)

@@ -75,10 +75,11 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 
 ## Quality / cleanup (from `/code-review` of the working diff)
 
-- 🟡 **Diagram-to-page mapping looks swapped.** `topic-routing.component.ts` (stream/Lua key routing)
-  binds `diagrams.keyRouting`, while `pubsub-topic-routing.component.ts` binds `diagrams.topicRouting`.
-  Both keys exist (so it compiles and the build passes), but the names suggest the two are crossed.
-  → Verify each page shows its intended diagram.
+- ✅ **Diagram-to-page mapping verified — it was never swapped** — *checked 2026-08-21*. Each page
+  does show its intended diagram: the definition named `topicRouting` described Pub/Sub pattern
+  subscribers and `keyRouting` described the Lua `route_message` stream router, so only the *names*
+  were misleading. Renamed to `pubsubTopicRouting` and `streamTopicRouting` so the trap cannot be
+  re-reported. Both pages re-checked in a browser: 2 diagrams each, no mermaid syntax error.
 - 🟡 **Hardcoded `http://localhost:8080` API base URLs** in `redis-api.service.ts`,
   `routing-rules.service.ts`, `websocket.service.ts`, and the `apiUrl` field of ~11 pattern
   components. Works only because ports are published to the host. → Centralize in one
@@ -114,19 +115,21 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 - 🟡 **`@CrossOrigin(origins = "*")` on `WorkQueueController`** contradicts the `CorsConfig`
   allow-list documented in `CLAUDE.md`. Other pattern controllers may carry the same annotation.
   → Cross-cutting security decision, deliberately out of scope for that slice.
-- 🟡 **`fanOut` diagram hard-codes 3 workers** in `diagram-definitions.service.ts` (the `workQueue`
-  one was fixed in this slice, along with its wrong stream/group names). → Fix when the fan-out post
-  is written.
-- 🟡 **The input stream viewer empties itself while the stream still holds the entries** — surfaced by
-  the manual pass on 2026-08-11 (`./launch-docker.sh --build`, burst of 200): the Job Stream panel
-  showed `0 of 199 messages` plus a `... 189 more messages ...` spacer while `XLEN
-  jobs.imageProcessing.v1` was 200. Cause: on success `WorkQueueService.processMessage` broadcasts a
-  `MESSAGE_DELETED` event (pre-existing, commit `c21fcfe`) although the job is only `XACK`ed — never
-  `XDEL`ed — so `stream-viewer` drops the row from `displayedMessages` while `totalMessages` keeps the
-  real count. Cosmetic and **pre-existing**, but the burst makes it obvious. → Either stop lying in the
-  event (rename to `MESSAGE_ACKED` and leave the row) or have the viewer decrement `totalMessages`.
-  Deliberately not fixed with the dynamic-workers slice: `stream-viewer` is shared by all 12 patterns
-  and that spec guards it as untouched.
+- ✅ **`fanOut` diagram matches the code** — *done 2026-08-21*. It was wrong in three ways, not one:
+  3 named services instead of 4 workers, `events.fanout.v1` instead of `fanout.events.v1`, and
+  invented done-stream names. Rewritten against the service: 4 workers, the real stream/DLQ/done
+  names, and — the point of the pattern, previously absent — **one consumer group per worker**, with
+  the label saying why that makes it a broadcast. `flowchart LR` was tried and reverted: it rendered
+  1120×1300 with crossing edges and a stranded producer, where `TB` stays compact.
+- ✅ **The stream viewer no longer empties itself** — *done 2026-08-21*. The cause was an event that
+  lied: seven services broadcast `MESSAGE_DELETED` after an `XACK`, and there is **no `XDEL` anywhere
+  in this codebase** — a stream is a log. The viewer believed them and dropped the row while
+  `totalMessages` kept the real count, hence `0 of 199 messages` against an `XLEN` of 200.
+  Fix: a new `MESSAGE_ACKED` event type; the seven ack-time emitters use it; the viewer **marks** the
+  row (dimmed, `acked` badge) instead of removing it, and leaves the total alone. `MESSAGE_DELETED`
+  now has exactly one emitter — `StreamMonitorService`, the only code that can actually know an entry
+  disappeared, because it diffs the ids it has seen against the ids the stream still holds.
+  Measured after a 40-job burst: `10 of 40 messages` with 10 `acked` badges, 0 console errors.
 
 ## Found while making Redis ephemeral (2026-08-20, ADR-0012)
 
@@ -147,16 +150,14 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
   instead of logging when the flag is set, and `WebSocketEventService` dropping broadcasts once the
   context closes (which also silenced the `WebSocket transport error` / `Failed to broadcast` pair that
   surfaced underneath). Measured: **3 ERRORs → 0** on `docker compose stop backend`, 93 tests green.
-- 🟡 **The legacy `redismessagingpatternswithjedis_redis-data` volume is orphaned** — no longer
-  declared in compose, so `docker compose down` leaves it. → `./clean-docker.sh` (`down -v`) or
-  `docker volume rm redismessagingpatternswithjedis_redis-data`.
+- ✅ **The legacy `redismessagingpatternswithjedis_redis-data` volume is gone** — removed 2026-08-20 on
+  request; this line was left stale until 2026-08-21.
+
 ## Found while upgrading to Spring Boot 4 (2026-08-21)
 
-- 🟡 **`GET /api/dlq/stats` logs an ERROR for a perfectly normal empty state.**
-  `DLQMessagingService.getPendingCount` runs `XPENDING` on a group that does not exist yet (fresh or
-  flushed Redis, DLQ page never opened), catches the NOGROUP error and logs
-  `Failed to get pending count` at ERROR before returning 0. Pre-existing, unrelated to Boot 4, but it
-  makes a clean startup look broken. → Treat NOGROUP as "0 pending" at DEBUG, keep ERROR for the rest.
+- ✅ **`GET /api/dlq/stats` is quiet on an empty state** — *done 2026-08-21*: `getPendingCount` now
+  treats `NOGROUP` as "0 pending" at DEBUG and keeps ERROR for everything else. A freshly flushed
+  Redis whose DLQ page nobody opened no longer looks broken in the logs.
 
 ## Found while upgrading the frontend (2026-08-21)
 

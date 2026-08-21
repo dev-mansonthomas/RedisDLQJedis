@@ -166,7 +166,7 @@ public class ContentBasedRoutingService implements CommandLineRunner {
                     String originalId = convertToString(dlqEntry.get(0));
                     log.info("Payment {} routed to DLQ", originalId);
                     webSocketEventService.broadcastEvent(DLQEvent.builder()
-                        .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                        .eventType(DLQEvent.EventType.MESSAGE_ACKED)
                         .messageId(originalId)
                         .streamName(INCOMING_STREAM)
                         .details("Payment routed to DLQ (max deliveries reached)")
@@ -225,7 +225,7 @@ public class ContentBasedRoutingService implements CommandLineRunner {
         log.info("Routed payment {} (amount={}) to {}", fields.get("paymentId"), amount, targetStream);
 
         webSocketEventService.broadcastEvent(DLQEvent.builder()
-            .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+            .eventType(DLQEvent.EventType.MESSAGE_ACKED)
             .messageId(messageId)
             .streamName(INCOMING_STREAM)
             .details("Routed to " + targetStream)

@@ -71,53 +71,71 @@ export class DiagramDefinitionsService {
     subgraph Producer["🏭 Producer"]
         P1["Event Publisher"]
     end
-    subgraph Workers["⚙️ Workers"]
-        W1["&nbsp;&nbsp;Analytics Service&nbsp;&nbsp;"]
-        W2["Notification Service"]
-        W3["&nbsp;&nbsp;&nbsp;&nbsp;Audit Service&nbsp;&nbsp;&nbsp;&nbsp;"]
-    end
     subgraph Redis["🔴 Redis"]
-        subgraph DoneStreams["✅ Done Streams"]
-            D1[("&nbsp;&nbsp;analytics.done&nbsp;&nbsp;")]
-            D2[("notifications.done")]
-            D3[("&nbsp;&nbsp;&nbsp;&nbsp;audit.done&nbsp;&nbsp;&nbsp;&nbsp;")]
+        ES[("📥 fanout.events.v1<br/>Stream")]
+        subgraph Groups["👥 One consumer group per worker — this is what makes it a broadcast"]
+            G1["fanout-group-1"]
+            G2["fanout-group-2"]
+            G3["fanout-group-3"]
+            G4["fanout-group-4"]
         end
-        ES[("📥 events.fanout.v1<br/>Stream")]
+        subgraph DoneStreams["✅ Done Streams"]
+            D1[("fanout.done.worker-1")]
+            D2[("fanout.done.worker-2")]
+            D3[("fanout.done.worker-3")]
+            D4[("fanout.done.worker-4")]
+        end
         subgraph DLQSection["⚠️ DLQ"]
             LUA["📜 Lua<br/>read_claim_or_dlq"]
-            DLQ[("events.fanout.v1:dlq")]
+            DLQ[("fanout.events.v1:dlq")]
         end
-        LUA -->|XREADGROUP| ES
-        LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
+        ES --> G1
+        ES --> G2
+        ES --> G3
+        ES --> G4
+        LUA -->|"XADD<br/>(if deliveries ≥ 2)"| DLQ
+    end
+    subgraph Workers["⚙️ Workers"]
+        W1["Worker 1"]
+        W2["Worker 2"]
+        W3["Worker 3"]
+        W4["Worker 4"]
     end
     P1 -->|XADD| ES
-    W1 -->|"poll<br/>FCALL"| LUA
-    W2 -->|"poll<br/>FCALL"| LUA
-    W3 -->|"poll<br/>FCALL"| LUA
+    W1 -->|"poll FCALL<br/>own group"| LUA
+    W2 -->|"poll FCALL<br/>own group"| LUA
+    W3 -->|"poll FCALL<br/>own group"| LUA
+    W4 -->|"poll FCALL<br/>own group"| LUA
     W1 -->|XADD| D1
     W2 -->|XADD| D2
     W3 -->|XADD| D3
+    W4 -->|XADD| D4
     style Redis fill:#dc382d,color:#fff
     style ES fill:#3498db,color:#fff
     style DLQ fill:#6b7280,color:#fff
     style LUA fill:#f39c12,color:#000
+    style Groups fill:#8e44ad,color:#fff
     style DoneStreams fill:#2ecc71,color:#fff
     style DLQSection fill:#e74c3c,color:#fff`,
     sequence: `sequenceDiagram
     participant P as Publisher
-    participant R as Redis Stream
-    participant A as Analytics
-    participant N as Notifications
-    participant Au as Audit
+    participant R as fanout.events.v1
+    participant W1 as Worker 1 (group 1)
+    participant W2 as Worker 2 (group 2)
+    participant W3 as Worker 3 (group 3)
+    participant W4 as Worker 4 (group 4)
     P->>R: XADD event
+    Note over R,W4: Each group has its own cursor, so every worker<br/>receives every event — unlike a work queue
     par Fan-Out
-        R-->>A: event copy
-        R-->>N: event copy
-        R-->>Au: event copy
+        R-->>W1: XREADGROUP (group 1)
+        R-->>W2: XREADGROUP (group 2)
+        R-->>W3: XREADGROUP (group 3)
+        R-->>W4: XREADGROUP (group 4)
     end
-    A->>R: XACK
-    N->>R: XACK
-    Au->>R: XACK`
+    W1->>R: XADD done + XACK
+    W2->>R: XADD done + XACK
+    W3->>R: XADD done + XACK
+    W4->>R: XADD done + XACK`
   };
 
   readonly tokenBucket: DiagramDefinition = {
@@ -465,7 +483,7 @@ export class DiagramDefinitionsService {
     Note over DLQ: Message in DLQ<br/>for manual review`
   };
 
-  readonly topicRouting: DiagramDefinition = {
+  readonly pubsubTopicRouting: DiagramDefinition = {
     architecture: `flowchart TB
     subgraph Publishers["☕ Publishers (Java)"]
         P1["Event Publisher"]
@@ -550,7 +568,7 @@ export class DiagramDefinitionsService {
     POLL->>ZS: ZREM`
   };
 
-  readonly keyRouting: DiagramDefinition = {
+  readonly streamTopicRouting: DiagramDefinition = {
     architecture: `flowchart LR
     subgraph Management["🔧 Management"]
         UI["🅰️ Angular<br/>Rules Manager"]

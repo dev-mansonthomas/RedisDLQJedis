@@ -230,9 +230,9 @@ public class DLQMessagingService {
                                 dlqIds.add(originalId);
                                 messagesSentToDLQ++;
 
-                                // Broadcast: message deleted from main stream
+                                // Tell the UI it was acked — the entry stays in the main stream
                                 webSocketEventService.broadcastEvent(DLQEvent.builder()
-                                    .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                                    .eventType(DLQEvent.EventType.MESSAGE_ACKED)
                                     .messageId(originalId)
                                     .streamName(params.getStreamName())
                                     .details("Message routed to DLQ (max deliveries reached)")
@@ -677,11 +677,24 @@ public class DLQMessagingService {
      * @param groupName Consumer group name
      * @return Number of pending messages
      */
+    /** True when Redis rejected the command because the stream or the group does not exist yet. */
+    private static boolean isNoGroup(Exception e) {
+        String message = e.getMessage();
+        return message != null && message.contains("NOGROUP");
+    }
+
     public long getPendingCount(String streamName, String groupName) {
         try (var jedis = jedisPool.getResource()) {
             var pendingInfo = jedis.xpending(streamName, groupName);
             return pendingInfo != null ? pendingInfo.getTotal() : 0;
         } catch (Exception e) {
+            // A group that does not exist yet is the normal state of a freshly flushed Redis whose
+            // DLQ page nobody has opened. There are zero pending messages, which is the honest
+            // answer — logging it at ERROR made a clean startup look broken.
+            if (isNoGroup(e)) {
+                log.debug("No consumer group '{}' on stream '{}' yet — 0 pending", groupName, streamName);
+                return 0;
+            }
             log.error("Failed to get pending count", e);
             return 0;
         }

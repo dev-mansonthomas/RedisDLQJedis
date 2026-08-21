@@ -129,11 +129,13 @@ class PerKeySerializedIntegrationTest extends AbstractRedisIntegrationTest {
         submit("ORDER-2", "validate");
         awaitTrue(() -> doneCount() == 1, Duration.ofSeconds(60), "the job to finish");
 
-        try (var jedis = servicePool.getResource()) {
-            assertThat(jedis.exists("running:order:ORDER-2"))
-                .as("a lock left behind would deadlock the key until its 30s TTL expired")
-                .isFalse();
-        }
+        // `release_lock` runs in a finally block, i.e. *after* the done entry is written — so the
+        // lock's disappearance has to be awaited rather than asserted on the done entry's arrival.
+        awaitTrue(() -> !lockExists("ORDER-2"), Duration.ofSeconds(15), "the lock to be released");
+
+        assertThat(lockExists("ORDER-2"))
+            .as("a lock left behind would deadlock the key until its 30s TTL expired")
+            .isFalse();
     }
 
     private void submit(String orderId, String... actions) {
@@ -175,6 +177,12 @@ class PerKeySerializedIntegrationTest extends AbstractRedisIntegrationTest {
 
     private long distinctWorkers() {
         return doneEntries().stream().map(f -> f.get("processedBy")).distinct().count();
+    }
+
+    private boolean lockExists(String orderId) {
+        try (var jedis = servicePool.getResource()) {
+            return jedis.exists("running:order:" + orderId);
+        }
     }
 
     private int doneCount() {

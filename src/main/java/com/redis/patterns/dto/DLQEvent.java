@@ -97,7 +97,16 @@ public class DLQEvent {
         MESSAGE_PRODUCED,
 
         /**
-         * Message was deleted from a stream
+         * Message was acknowledged (XACK). The entry <strong>remains in the stream</strong> — a
+         * stream is a log, and {@code XACK} is not {@code XDEL}. Emitted by every worker that
+         * finishes a message; consumers of this event must not remove it from a stream view.
+         */
+        MESSAGE_ACKED,
+
+        /**
+         * Message genuinely disappeared from a stream (deleted or trimmed). Only
+         * {@code StreamMonitorService} can know this, by diffing the ids it has seen against the
+         * ids the stream still holds.
          */
         MESSAGE_DELETED,
 
