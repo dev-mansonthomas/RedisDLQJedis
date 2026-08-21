@@ -1,5 +1,5 @@
 import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 
@@ -9,16 +9,21 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
  * - Process & Success: Gets next message and acknowledges it
  * - Process & Fail: Gets next message but doesn't acknowledge (will retry)
  */
+interface ProcessResponse {
+  success: boolean;
+  message?: string;
+}
+
 @Component({
   selector: 'app-dlq-actions',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="dlq-actions">
       <div class="actions-header">
         <h3 class="actions-title">Message Processing</h3>
       </div>
-
+    
       <div class="actions-content">
         <button
           class="action-button generate"
@@ -27,9 +32,9 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">⚡</span>
           <span class="button-text">Generate Messages</span>
         </button>
-
+    
         <div class="separator"></div>
-
+    
         <button
           class="action-button success"
           [disabled]="isProcessing()"
@@ -37,7 +42,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">✓</span>
           <span class="button-text">Process & Success</span>
         </button>
-
+    
         <button
           class="action-button fail"
           [disabled]="isProcessing()"
@@ -46,7 +51,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">✗</span>
           <span class="button-text">Process & Fail (timeout)</span>
         </button>
-
+    
         <button
           class="action-button explicit"
           [disabled]="isProcessing()"
@@ -55,7 +60,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">⚡</span>
           <span class="button-text">Process & Explicit Fail</span>
         </button>
-
+    
         <button
           class="action-button poison"
           [disabled]="isProcessing()"
@@ -64,7 +69,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">☠️</span>
           <span class="button-text">Process & Poison</span>
         </button>
-
+    
         <button
           class="action-button silent"
           [disabled]="isProcessing()"
@@ -73,9 +78,9 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">↩️</span>
           <span class="button-text">Process & Release (silent)</span>
         </button>
-
+    
         <div class="separator"></div>
-
+    
         <button
           class="action-button clear"
           [disabled]="isProcessing()"
@@ -83,14 +88,16 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
           <span class="button-icon">🗑️</span>
           <span class="button-text">Clear All Streams</span>
         </button>
-
-        <div class="status-message" *ngIf="statusMessage()" [class.error]="isError()">
-          {{ statusMessage() }}
-        </div>
+    
+        @if (statusMessage()) {
+          <div class="status-message" [class.error]="isError()">
+            {{ statusMessage() }}
+          </div>
+        }
       </div>
     </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+    `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .dlq-actions {
       background: white;
@@ -270,7 +277,7 @@ export class DlqActionsComponent {
     // Send each message
     messages.forEach((message, index) => {
       setTimeout(() => {
-        this.http.post<any>(`${this.apiUrl}/produce`, {
+        this.http.post<void>(`${this.apiUrl}/produce`, {
           streamName: 'test-stream',
           payload: message
         }).subscribe({
@@ -346,8 +353,8 @@ export class DlqActionsComponent {
     let errors = 0;
 
     streams.forEach((streamName) => {
-      this.http.delete<any>(`${this.apiUrl}/stream/${streamName}`).subscribe({
-        next: (response) => {
+      this.http.delete<void>(`${this.apiUrl}/stream/${streamName}`).subscribe({
+        next: () => {
           completed++;
           if (completed + errors === streams.length) {
             this.isProcessing.set(false);
@@ -365,7 +372,7 @@ export class DlqActionsComponent {
             setTimeout(() => this.statusMessage.set(''), 3000);
           }
         },
-        error: (error) => {
+        error: () => {
           errors++;
           if (completed + errors === streams.length) {
             this.isProcessing.set(false);
@@ -394,7 +401,7 @@ export class DlqActionsComponent {
     this.statusMessage.set('Processing...');
     this.isError.set(false);
 
-    this.http.post<any>(`${this.apiUrl}/process`, { outcome }).subscribe({
+    this.http.post<ProcessResponse>(`${this.apiUrl}/process`, { outcome }).subscribe({
       next: (response) => {
         if (response.success) {
           this.statusMessage.set(response.message || 'Message processed successfully');

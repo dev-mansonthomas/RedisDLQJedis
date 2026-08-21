@@ -1,5 +1,5 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterModule } from '@angular/router';
 
 interface MenuItem {
@@ -18,7 +18,7 @@ interface MenuCategory {
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
     <aside class="sidebar" [class.collapsed]="isCollapsed">
       <div class="sidebar-header">
@@ -68,7 +68,7 @@ interface MenuCategory {
       </nav>
     </aside>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .sidebar {
       width: 250px;

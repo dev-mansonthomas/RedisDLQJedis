@@ -55,10 +55,14 @@
   `npm run lint` + `npm test`; note the Redis integration tests **skip** without Docker, so a runner
   without Docker would go green while testing almost nothing. See
   [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) ("Adjacent, not included").
-- 🟠 **Frontend lint: 76 errors** (`npm run lint`). Dominant categories: `@angular-eslint/template/
-  label-has-associated-control`, `click-events-have-key-events` / `interactive-supports-focus`
-  (a11y), `@typescript-eslint/no-explicit-any`, `@angular-eslint/no-empty-lifecycle-method`.
-  8 are auto-fixable (`npm run lint -- --fix`).
+- ✅ **Frontend lint is clean** — *done 2026-08-21*: **145 → 0**. The count went up before it went
+  down: angular-eslint 22 adds `prefer-control-flow`, so the 76 became 145. Fixed, not silenced —
+  62 template blocks migrated to `@if`/`@for` with the official `@angular/core:control-flow`
+  schematic, 26 `any` replaced by real response types (which exposed that the pub/sub pages receive
+  `PubSubEvent`, not `DLQEvent` — the socket carries a union, and `any` was hiding it), 19 labels
+  associated with their control, 14 a11y errors on clickable `div`s given `role`/`tabindex`/keyboard
+  handlers, and the 11 components flagged `prefer-on-push` converted to **OnPush**. No rule was
+  disabled. Verified in a real browser: 20/20 interactive checks, 0 console errors.
 - ✅ **Backend builds & runs locally in this VM** — *resolved 2026-06-29*: Java 21 + Maven 3.9.16
   are now installed (host VM provisioning), so `mvn compile`/`mvn package` work directly; the Docker
   multi-stage path also works. Lua lint available via `luacheck`.
@@ -76,8 +80,8 @@
 | npm / git | bundled / any | 11.13.0 / 2.43.0 | ✅ |
 
 No multi-version needs (single Java 21, single Node line; no `.nvmrc`/`.tool-versions`/Python/Go/PHP/TF).
-Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Dockerfile build stage to
-`node:24-alpine` to match the runtime VM.
+Node parity: ✅ *resolved 2026-08-21* — the frontend Dockerfile build stage is `node:24-alpine`,
+matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 - ✅ **`TokenBucketService` `XREADGROUP_UNDELIVERED_ENTRY`** (Jedis 7 API) — compile-verified via the
   Docker build; the service also now uses registered `FCALL acquire_token`/`release_token` instead of
   inline `EVAL`.
@@ -158,6 +162,45 @@ Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Docke
   flushed Redis, DLQ page never opened), catches the NOGROUP error and logs
   `Failed to get pending count` at ERROR before returning 0. Pre-existing, unrelated to Boot 4, but it
   makes a clean startup look broken. → Treat NOGROUP as "0 pending" at DEBUG, keep ERROR for the rest.
+
+## Found while upgrading the frontend (2026-08-21)
+
+- 🟡 **OnPush is now load-bearing and nothing guards it.** The 11 components converted to
+  `ChangeDetectionStrategy.OnPush` refresh only because their mutable template state sits in
+  `signal()`s (or changes from their own template events). A future contributor adding a plain field
+  mutated from a `subscribe`/`setInterval` will get a view that silently stops updating — the exact
+  failure mode no test can catch here. → The frontend test runner
+  ([`specs/frontend-test-runner.md`](specs/frontend-test-runner.md)) is now the highest-value gap.
+- 🟡 **`request-reply` still trusts the WebSocket payload shape.** `handleResponse` is typed
+  against a hand-written `ResponsePayload` interface that mirrors the backend by convention only;
+  nothing fails if the backend DTO drifts. Same for the new `PubSubEvent` frontend interface.
+
+## Demo legibility — requested by the author 2026-08-21
+
+These are about what a prospect *sees*. They are feature work, not defects, except where noted.
+
+- 🟠 **DLQ page: say what is being demonstrated, and what is left to do.** Pressing a button
+  should reveal a panel underneath that states (a) the point of this test — what we want to show a
+  customer — and (b) the remaining actions needed to complete the scenario. Today the buttons act with
+  no narrative, so a viewer who does not already know the DLQ pattern cannot tell what they just proved.
+  → Per-button copy: intent + the ordered next steps, with the current step highlighted. The same
+  treatment would help every pattern page; DLQ first because it is the landing pattern.
+- 🟠 **Per-Key Serialized: the guarantee does not jump out.** The whole promise is that two
+  jobs for the *same* key never run concurrently while different keys do run in parallel — and the
+  current view does not make that visible. → Render **one time-slot lane per worker**, so a viewer can
+  scan a lane and see a single key `XXXX` occupying it at a time, never two. The moment that lands, the
+  pattern explains itself. Note this is also the pattern whose `minIdle` safety margin was never
+  audited (see the claim-based duplication item above) — the lanes would *show* a duplicate run, making
+  the diagram double as a correctness check.
+- 🟡 **LLM Chat: token-by-token streaming reported as invisible on long replies** — the text
+  is said to arrive as one block after a wait, while the token counter climbs. **Measured on the
+  Angular 22 build (2026-08-21) and it does stream**: with `long text` as the prompt, the first
+  character appears after **309 ms**, then the assistant bubble grows 46 → 1040 characters over **23
+  distinct steps**, largest single jump 66 characters. So either the report predates that build, or
+  the trigger is a case this measurement missed. → Get the repro (exact prompt, reply length, whether
+  the internals panel was open) before changing anything; if it reproduces, the suspects are
+  `MockLlmClient`'s `tokenDelayMs` and the 1500 ms `refresh()` poll racing the `ASSISTANT_MESSAGE`
+  event, which does replace the streamed text with the complete turn in one assignment.
 
 ## Code review & security
 

@@ -1,5 +1,5 @@
-import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnDestroy, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
@@ -20,10 +20,14 @@ interface SleepOption {
  * - Each message is delivered to ALL workers (broadcast)
  * - Still uses DLQ for failed messages after max retries
  */
+interface ProduceResponse {
+  success: boolean;
+}
+
 @Component({
   selector: 'app-fan-out',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
+  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fan-out-container">
@@ -34,7 +38,7 @@ interface SleepOption {
           Unlike Pub/Sub: messages are persisted. Unlike Work Queue: no competing consumers.
         </p>
       </div>
-
+    
       <!-- Controls Section -->
       <div class="controls-section">
         <div class="controls-row">
@@ -44,36 +48,40 @@ interface SleepOption {
             (click)="startProducing()">
             ▶ Start Producing Events
           </button>
-
+    
           <button
             class="btn btn-stop"
             [disabled]="!isProducing"
             (click)="stopProducing()">
             ⏹ Stop Producing Events
           </button>
-
+    
           <button
             class="btn btn-clear"
             [disabled]="isProducing"
             (click)="clearAllStreams()">
             🗑 Clear All
           </button>
-
+    
           <div class="sleep-selector">
-            <label>Sleep between events:</label>
-            <select [(ngModel)]="selectedSleep" [disabled]="isProducing">
-              <option *ngFor="let opt of sleepOptions" [ngValue]="opt.value">
-                {{ opt.label }}
-              </option>
+            <label for="fanout-sleep">Sleep between events:</label>
+            <select id="fanout-sleep" [(ngModel)]="selectedSleep" [disabled]="isProducing">
+              @for (opt of sleepOptions; track opt) {
+                <option [ngValue]="opt.value">
+                  {{ opt.label }}
+                </option>
+              }
             </select>
           </div>
-
-          <div class="event-counter" *ngIf="eventsProduced > 0">
-            Events produced: <strong>{{ eventsProduced }}</strong>
-          </div>
+    
+          @if (eventsProduced > 0) {
+            <div class="event-counter">
+              Events produced: <strong>{{ eventsProduced }}</strong>
+            </div>
+          }
         </div>
       </div>
-
+    
       <!-- Event Stream (input) -->
       <div class="stream-section">
         <h3>📥 Event Stream (Input)</h3>
@@ -86,21 +94,22 @@ interface SleepOption {
           </app-stream-viewer>
         </div>
       </div>
-
+    
       <!-- Workers Done Streams (each worker has its own copy) -->
       <div class="stream-section">
         <h3>✅ Workers Done Streams (each receives ALL events)</h3>
         <div class="stream-row workers">
-          <app-stream-viewer
-            *ngFor="let w of [1,2,3,4]"
-            [stream]="'fanout.done.worker-' + w"
-            [group]="'fanout-group-' + w"
-            [consumer]="'viewer'"
-            [pageSize]="10">
-          </app-stream-viewer>
+          @for (w of [1,2,3,4]; track w) {
+            <app-stream-viewer
+              [stream]="'fanout.done.worker-' + w"
+              [group]="'fanout-group-' + w"
+              [consumer]="'viewer'"
+              [pageSize]="10">
+            </app-stream-viewer>
+          }
         </div>
       </div>
-
+    
       <!-- DLQ Stream -->
       <div class="stream-section">
         <h3>❌ Dead Letter Queue</h3>
@@ -113,14 +122,14 @@ interface SleepOption {
           </app-stream-viewer>
         </div>
       </div>
-
+    
       <!-- Architecture Diagram -->
       <app-mermaid-diagram
         title="View Architecture & Sequence Diagrams"
         [architectureDiagram]="diagrams.fanOut.architecture"
         [sequenceDiagram]="diagrams.fanOut.sequence">
       </app-mermaid-diagram>
-
+    
       <!-- How it Works Section -->
       <div class="info-box">
         <div class="info-header">
@@ -157,7 +166,7 @@ interface SleepOption {
         </div>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     .fan-out-container {
       padding: 20px;
@@ -374,7 +383,7 @@ interface SleepOption {
     }
   `]
 })
-export class FanOutComponent implements OnInit, OnDestroy {
+export class FanOutComponent implements OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   private cdr = inject(ChangeDetectorRef);
@@ -385,7 +394,7 @@ export class FanOutComponent implements OnInit, OnDestroy {
   isProducing = false;
   eventsProduced = 0;
   private eventCounter = 0;
-  private productionInterval: any = null;
+  private productionInterval: ReturnType<typeof setTimeout> | null = null;
 
   // Sleep options
   sleepOptions: SleepOption[] = [
@@ -395,10 +404,6 @@ export class FanOutComponent implements OnInit, OnDestroy {
     { label: '2s', value: 2000 }
   ];
   selectedSleep = 500;
-
-  ngOnInit(): void {
-    // Component initialization
-  }
 
   ngOnDestroy(): void {
     this.stopProducing();
@@ -426,7 +431,7 @@ export class FanOutComponent implements OnInit, OnDestroy {
     // 1 in 10 events is an Error
     const processingType = (this.eventCounter % 10 === 0) ? 'Error' : 'OK';
 
-    this.http.post<any>(`${this.apiUrl}/produce`, null, {
+    this.http.post<ProduceResponse>(`${this.apiUrl}/produce`, null, {
       params: { processingType }
     }).subscribe({
       next: (response) => {

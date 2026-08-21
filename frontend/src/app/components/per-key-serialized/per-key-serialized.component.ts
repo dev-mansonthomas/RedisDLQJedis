@@ -1,5 +1,5 @@
 import { Component, OnInit, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
@@ -13,10 +13,14 @@ interface Job {
   selected: boolean;
 }
 
+interface SubmitJobsResponse {
+  jobsSubmitted: number;
+}
+
 @Component({
   selector: 'app-per-key-serialized',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
+  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './per-key-serialized.component.html',
   styleUrl: './per-key-serialized.component.scss'
@@ -75,7 +79,7 @@ export class PerKeySerializedComponent implements OnInit {
       action: j.action
     }));
 
-    this.http.post<any>(`${this.apiUrl}/submit`, jobsToSend).subscribe({
+    this.http.post<SubmitJobsResponse>(`${this.apiUrl}/submit`, jobsToSend).subscribe({
       next: (response) => {
         this.isSuccess.set(true);
         this.submitMessage.set(`✅ ${response.jobsSubmitted} jobs submitted`);
@@ -93,7 +97,7 @@ export class PerKeySerializedComponent implements OnInit {
   }
 
   clearAll(): void {
-    this.http.delete<any>(`${this.apiUrl}/clear`).subscribe({
+    this.http.delete<void>(`${this.apiUrl}/clear`).subscribe({
       next: () => {
         this.submitMessage.set('✅ All streams cleared');
         this.refreshService.triggerRefresh();

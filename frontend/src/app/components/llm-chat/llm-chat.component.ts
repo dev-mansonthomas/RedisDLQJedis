@@ -40,7 +40,7 @@ interface LlmChatWsEvent {
   standalone: true,
   imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   templateUrl: './llm-chat.component.html',
-  changeDetection: ChangeDetectionStrategy.Eager,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['./llm-chat.component.scss']
 })
 export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {

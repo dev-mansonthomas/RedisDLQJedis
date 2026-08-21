@@ -139,29 +139,32 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
           1 in 10 jobs fails and goes to DLQ after 2 retries.
         </p>
       </div>
-
+    
       <!-- Controls Section -->
       <div class="controls-section">
         <!-- Demo pace. Governs both rows below, hence its place at the top. -->
-        <div class="controls-row pace-row" *ngIf="demo">
-          <div class="mode-selector">
-            <label for="demo-mode">Demo mode:</label>
-            <select id="demo-mode" [ngModel]="demo.mode" (ngModelChange)="setDemoMode($event)">
-              <!-- [value], not [ngValue]: the mode is a plain string, so this keeps the DOM value the
-                   mode name itself instead of Angular's "0: 'SLOW'" index key. -->
-              <option *ngFor="let opt of demo.modes" [value]="opt.name">
-                {{ opt.label }} (work time: {{ opt.workMs }} ms, idleTime: {{ opt.minIdleMs }} ms)
-              </option>
-            </select>
+        @if (demo) {
+          <div class="controls-row pace-row">
+            <div class="mode-selector">
+              <label for="demo-mode">Demo mode:</label>
+              <select id="demo-mode" [ngModel]="demo.mode" (ngModelChange)="setDemoMode($event)">
+                <!-- [value], not [ngValue]: the mode is a plain string, so this keeps the DOM value the
+                mode name itself instead of Angular's "0: 'SLOW'" index key. -->
+                @for (opt of demo.modes; track opt) {
+                  <option [value]="opt.name">
+                    {{ opt.label }} (work time: {{ opt.workMs }} ms, idleTime: {{ opt.minIdleMs }} ms)
+                  </option>
+                }
+              </select>
+            </div>
+            <div class="mode-hint">
+              A job holds its worker for <strong>{{ demo.workMs }} ms</strong>; an unacknowledged job becomes
+              claimable by a peer after <strong>{{ demo.minIdleMs }} ms</strong> idle
+              (workers poll every {{ demo.pollMs }} ms).
+            </div>
           </div>
-
-          <div class="mode-hint">
-            A job holds its worker for <strong>{{ demo.workMs }} ms</strong>; an unacknowledged job becomes
-            claimable by a peer after <strong>{{ demo.minIdleMs }} ms</strong> idle
-            (workers poll every {{ demo.pollMs }} ms).
-          </div>
-        </div>
-
+        }
+    
         <div class="controls-row">
           <button
             class="btn btn-start"
@@ -169,88 +172,92 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
             (click)="startProducing()">
             ▶ Start Producing Jobs
           </button>
-
+    
           <button
             class="btn btn-stop"
             [disabled]="!isProducing"
             (click)="stopProducing()">
             ⏹ Stop Producing Jobs
           </button>
-
-          <button
-            class="btn btn-burst"
-            *ngIf="demo"
-            (click)="burst()"
-            title="Queue the jobs in one pipelined XADD, so the pool has a real backlog to drain — the steady producer alone never builds one">
-            ⚡ Burst {{ demo.burstSize }} jobs
-          </button>
-
+    
+          @if (demo) {
+            <button
+              class="btn btn-burst"
+              (click)="burst()"
+              title="Queue the jobs in one pipelined XADD, so the pool has a real backlog to drain — the steady producer alone never builds one">
+              ⚡ Burst {{ demo.burstSize }} jobs
+            </button>
+          }
+    
           <button
             class="btn btn-clear"
             [disabled]="isProducing"
             (click)="clearAllStreams()">
             🗑 Clear All
           </button>
-
+    
           <div class="sleep-selector">
             <label for="sleep-between-jobs">Sleep between jobs:</label>
             <select id="sleep-between-jobs" [(ngModel)]="selectedSleep" [disabled]="isProducing">
-              <option *ngFor="let opt of sleepOptions" [ngValue]="opt.value">
-                {{ opt.label }}
-              </option>
+              @for (opt of sleepOptions; track opt) {
+                <option [ngValue]="opt.value">
+                  {{ opt.label }}
+                </option>
+              }
             </select>
           </div>
-
+    
         </div>
-
+    
         <!-- Worker pool controls -->
-        <div class="controls-row workers-row" *ngIf="workers">
-          <button
-            class="btn btn-add"
-            [disabled]="workers.count >= workers.max"
-            (click)="addWorker()">
-            + Add worker
-          </button>
-
-          <button
-            class="btn btn-remove"
-            [disabled]="workers.count <= workers.min"
-            (click)="removeWorker(false)"
-            title="Graceful: the worker finishes its current job before stopping">
-            − Remove worker
-          </button>
-
-          <button
-            class="btn btn-kill"
-            [disabled]="workers.count <= workers.min"
-            (click)="removeWorker(true)"
-            title="Abrupt: the current job is left PENDING and another worker reclaims it">
-            💀 Kill worker
-          </button>
-
-          <div class="job-counter">
-            Workers: <strong>{{ workers.count }}</strong> / {{ workers.max }}
+        @if (workers) {
+          <div class="controls-row workers-row">
+            <button
+              class="btn btn-add"
+              [disabled]="workers.count >= workers.max"
+              (click)="addWorker()">
+              + Add worker
+            </button>
+            <button
+              class="btn btn-remove"
+              [disabled]="workers.count <= workers.min"
+              (click)="removeWorker(false)"
+              title="Graceful: the worker finishes its current job before stopping">
+              − Remove worker
+            </button>
+            <button
+              class="btn btn-kill"
+              [disabled]="workers.count <= workers.min"
+              (click)="removeWorker(true)"
+              title="Abrupt: the current job is left PENDING and another worker reclaims it">
+              💀 Kill worker
+            </button>
+            <div class="job-counter">
+              Workers: <strong>{{ workers.count }}</strong> / {{ workers.max }}
+            </div>
+            <!-- Input count next to output count: the gap between them is the queue plus the DLQ. -->
+            @if (jobsProduced > 0) {
+              <div class="job-counter">
+                Jobs produced: <strong>{{ jobsProduced }}</strong>
+              </div>
+            }
+            @if (completedTotal > 0) {
+              <div
+                class="job-counter throughput"
+                title="Entries written to the workers' done streams. A job routed to the DLQ is not a completion, so this trails 'Jobs produced' by the 1-in-10 failures.">
+                Completed: <strong>{{ completedTotal }}</strong>
+                · <strong>{{ completionRate | number:'1.1-1' }}</strong>/s
+                <span class="peak">peak {{ peakRate | number:'1.1-1' }}/s</span>
+              </div>
+            }
+            @if (workerMessage) {
+              <div class="worker-message">{{ workerMessage }}</div>
+            }
           </div>
-
-          <!-- Input count next to output count: the gap between them is the queue plus the DLQ. -->
-          <div class="job-counter" *ngIf="jobsProduced > 0">
-            Jobs produced: <strong>{{ jobsProduced }}</strong>
-          </div>
-
-          <div
-            class="job-counter throughput"
-            *ngIf="completedTotal > 0"
-            title="Entries written to the workers' done streams. A job routed to the DLQ is not a completion, so this trails 'Jobs produced' by the 1-in-10 failures.">
-            Completed: <strong>{{ completedTotal }}</strong>
-            · <strong>{{ completionRate | number:'1.1-1' }}</strong>/s
-            <span class="peak">peak {{ peakRate | number:'1.1-1' }}/s</span>
-          </div>
-
-          <div class="worker-message" *ngIf="workerMessage">{{ workerMessage }}</div>
-        </div>
+        }
       </div>
-
-      <ng-container *ngIf="streams">
+    
+      @if (streams) {
         <!-- Job Stream (input) -->
         <div class="stream-section">
           <h3>📥 Job Stream (Input)</h3>
@@ -263,21 +270,20 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
             </app-stream-viewer>
           </div>
         </div>
-
         <!-- Workers Done Streams — one panel per running worker -->
         <div class="stream-section">
           <h3>✅ Workers Done Streams</h3>
           <div class="stream-row workers">
-            <app-stream-viewer
-              *ngFor="let doneStream of streams.doneStreams; trackBy: trackByStream"
-              [stream]="doneStream"
-              [group]="streams.group"
-              [consumer]="'viewer'"
-              [pageSize]="10">
-            </app-stream-viewer>
+            @for (doneStream of streams.doneStreams; track trackByStream($index, doneStream)) {
+              <app-stream-viewer
+                [stream]="doneStream"
+                [group]="streams.group"
+                [consumer]="'viewer'"
+                [pageSize]="10">
+              </app-stream-viewer>
+            }
           </div>
         </div>
-
         <!-- DLQ Stream -->
         <div class="stream-section">
           <h3>❌ Dead Letter Queue</h3>
@@ -290,15 +296,15 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
             </app-stream-viewer>
           </div>
         </div>
-      </ng-container>
-
+      }
+    
       <!-- Architecture Diagram -->
       <app-mermaid-diagram
         title="View Architecture & Sequence Diagrams"
         [architectureDiagram]="diagrams.workQueue.architecture"
         [sequenceDiagram]="diagrams.workQueue.sequence">
       </app-mermaid-diagram>
-
+    
       <!-- How it Works Section -->
       <div class="info-box">
         <div class="info-header">
@@ -330,10 +336,10 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
             <ol>
               <li><strong>Failed jobs</strong> remain in PENDING entries (no ACK)</li>
               <li><strong>After {{ demo?.minIdleMs ?? '—' }}ms idle</strong> (the demo mode's <code>minIdle</code>), another worker can
-                claim the job via <code>XREADGROUP CLAIM</code></li>
+              claim the job via <code>XREADGROUP CLAIM</code></li>
               <li><strong>Max 2 delivery attempts</strong>: After 2 failures, job is routed to DLQ</li>
               <li><strong><code>minIdle</code> must outlast processing</strong>: otherwise a free worker claims a job its
-                busy peer is still working on and the job runs <em>twice</em>, silently. Both demo modes keep a 2× margin</li>
+              busy peer is still working on and the job runs <em>twice</em>, silently. Both demo modes keep a 2× margin</li>
               <li><strong>Killing a worker costs one attempt</strong>: kill the holder of the same job twice and it lands in the DLQ</li>
               <li><strong>DLQ routing</strong>: <code>XCLAIM</code> + <code>XADD</code> to DLQ + <code>XACK</code> (atomic via Lua)</li>
             </ol>
@@ -344,29 +350,29 @@ export function computeRate(timesMs: number[], nowMs: number, windowMs: number):
               <li><strong>Lua Function</strong>: <code>read_claim_or_dlq</code> handles read + claim + DLQ atomically</li>
               <li><strong>Virtual Threads</strong>: Java 21 lightweight threads for efficient blocking I/O</li>
               <li><strong>Streams</strong>:
-                <code>jobs.imageProcessing.v1</code> (input),
-                <code>jobs.done.worker-1..N</code> (one per worker, output),
-                <code>jobs.imageProcessing.v1:dlq</code> (failures)
-              </li>
-              <li><strong>WebSocket</strong>: Real-time UI updates via <code>MESSAGE_PRODUCED</code> / <code>MESSAGE_DELETED</code> events</li>
-            </ul>
-          </div>
-          <div class="info-section">
-            <h4>📈 Horizontal Scalability</h4>
-            <ul>
-              <li><strong>Add more workers</strong>: Consumer Groups distribute load automatically — use the buttons above</li>
-              <li><strong>Use <em>Burst</em> to see it</strong>: the steady producer never builds a backlog (one Fast
-                worker keeps up with it), so the <code>/s</code> figure tracks the producer. Queue a burst, then
-                watch the completion rate scale with the number of workers</li>
-              <li><strong>Removing a worker keeps its consumer</strong>: no <code>XGROUP DELCONSUMER</code>, so a job in flight is reclaimed instead of lost</li>
-              <li><strong>No coordination needed</strong>: Redis handles message distribution</li>
-              <li><strong>At-least-once delivery</strong>: Each message is processed at least once (idempotency recommended)</li>
-            </ul>
-          </div>
+              <code>jobs.imageProcessing.v1</code> (input),
+              <code>jobs.done.worker-1..N</code> (one per worker, output),
+              <code>jobs.imageProcessing.v1:dlq</code> (failures)
+            </li>
+            <li><strong>WebSocket</strong>: Real-time UI updates via <code>MESSAGE_PRODUCED</code> / <code>MESSAGE_DELETED</code> events</li>
+          </ul>
         </div>
+        <div class="info-section">
+          <h4>📈 Horizontal Scalability</h4>
+          <ul>
+            <li><strong>Add more workers</strong>: Consumer Groups distribute load automatically — use the buttons above</li>
+            <li><strong>Use <em>Burst</em> to see it</strong>: the steady producer never builds a backlog (one Fast
+            worker keeps up with it), so the <code>/s</code> figure tracks the producer. Queue a burst, then
+          watch the completion rate scale with the number of workers</li>
+          <li><strong>Removing a worker keeps its consumer</strong>: no <code>XGROUP DELCONSUMER</code>, so a job in flight is reclaimed instead of lost</li>
+          <li><strong>No coordination needed</strong>: Redis handles message distribution</li>
+          <li><strong>At-least-once delivery</strong>: Each message is processed at least once (idempotency recommended)</li>
+        </ul>
       </div>
     </div>
-  `,
+    </div>
+    </div>
+    `,
   styles: [`
     .work-queue-container {
       padding: 20px;

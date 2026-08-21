@@ -21,8 +21,8 @@
         </div>
         <div class="panel-content">
           <div class="form-group">
-            <label>Routing Key</label>
-            <select [(ngModel)]="selectedRoutingKey" class="form-select">
+            <label for="ptr-routing-key">Routing Key</label>
+            <select id="ptr-routing-key" [(ngModel)]="selectedRoutingKey" class="form-select">
               <option value="order.eu.created">order.eu.created</option>
               <option value="order.eu.cancelled">order.eu.cancelled</option>
               <option value="order.us.created">order.us.created</option>
@@ -32,7 +32,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Payload</label>
+            <span class="group-label">Payload</span>
             <div class="payload-fields">
               @for (field of fields(); track $index) {
                 <div class="field-row">

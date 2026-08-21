@@ -1,5 +1,5 @@
 import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
@@ -21,144 +21,139 @@ export interface DLQConfig {
 @Component({
   selector: 'app-dlq-config',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <div class="dlq-config">
       <!-- Collapsed View -->
-      <div class="collapsed-view" *ngIf="!isExpanded()" (click)="toggleExpand()">
-        <div class="collapsed-content">
-          <span class="collapsed-label">Max Deliveries:</span>
-          <span class="collapsed-value">{{ config.maxDeliveries }}</span>
+      @if (!isExpanded()) {
+        <div class="collapsed-view" (click)="toggleExpand()" role="button" tabindex="0" (keydown.enter)="toggleExpand()" (keydown.space)="toggleExpand()" [attr.aria-expanded]="isExpanded()">
+          <div class="collapsed-content">
+            <span class="collapsed-label">Max Deliveries:</span>
+            <span class="collapsed-value">{{ config.maxDeliveries }}</span>
+          </div>
+          <div class="expand-icon">▼</div>
         </div>
-        <div class="expand-icon">▼</div>
-      </div>
-
+      }
+    
       <!-- Expanded View -->
-      <div class="expanded-view" *ngIf="isExpanded()">
-        <div class="header-row" (click)="toggleExpand()">
-          <h3 class="section-title">DLQ Configuration</h3>
-          <div class="collapse-icon">▲</div>
+      @if (isExpanded()) {
+        <div class="expanded-view">
+          <div class="header-row" (click)="toggleExpand()" role="button" tabindex="0" (keydown.enter)="toggleExpand()" (keydown.space)="toggleExpand()" [attr.aria-expanded]="isExpanded()">
+            <h3 class="section-title">DLQ Configuration</h3>
+            <div class="collapse-icon">▲</div>
+          </div>
+          <div class="config-section">
+            <h4 class="subsection-title">Stream Configuration (Read-only)</h4>
+            <div class="form-group">
+              <label for="streamName">Main Stream Name</label>
+              <input
+                id="streamName"
+                type="text"
+                [(ngModel)]="config.streamName"
+                placeholder="test-stream"
+                class="form-input"
+                readonly>
+            </div>
+            <div class="form-group">
+              <label for="dlqStreamName">DLQ Stream Name</label>
+              <input
+                id="dlqStreamName"
+                type="text"
+                [(ngModel)]="config.dlqStreamName"
+                placeholder="test-stream:dlq"
+                class="form-input"
+                readonly>
+            </div>
+            <div class="form-group">
+              <label for="consumerGroup">Consumer Group</label>
+              <input
+                id="consumerGroup"
+                type="text"
+                [(ngModel)]="config.consumerGroup"
+                placeholder="test-group"
+                class="form-input"
+                readonly>
+            </div>
+            <div class="form-group">
+              <label for="consumerName">Consumer Name</label>
+              <input
+                id="consumerName"
+                type="text"
+                [(ngModel)]="config.consumerName"
+                placeholder="consumer-1"
+                class="form-input"
+                readonly>
+            </div>
+          </div>
+          <div class="config-section">
+            <h4 class="subsection-title">DLQ Parameters</h4>
+            <div class="form-group highlight">
+              <label for="maxDeliveries">
+                Max Retry (Max Deliveries) - Editable
+                <span class="label-hint">Messages will be sent to DLQ after this many delivery attempts</span>
+              </label>
+              <input
+                id="maxDeliveries"
+                type="number"
+                [(ngModel)]="config.maxDeliveries"
+                min="1"
+                max="100"
+                class="form-input editable">
+              <div class="input-hint">Current value: {{ config.maxDeliveries }} attempts</div>
+            </div>
+            <div class="form-group">
+              <label for="minIdleMs">
+                Min Idle Time (ms)
+                <span class="label-hint">Minimum time a message must be idle before reclaim</span>
+              </label>
+              <input
+                id="minIdleMs"
+                type="number"
+                [(ngModel)]="config.minIdleMs"
+                min="0"
+                step="1000"
+                class="form-input"
+                readonly>
+              <div class="input-hint">{{ config.minIdleMs / 1000 }} seconds</div>
+            </div>
+            <div class="form-group">
+              <label for="count">
+                Batch Size
+                <span class="label-hint">Max messages to process per claim operation</span>
+              </label>
+              <input
+                id="count"
+                type="number"
+                [(ngModel)]="config.count"
+                min="1"
+                max="1000"
+                class="form-input"
+                readonly>
+            </div>
+          </div>
+          <div class="actions">
+            <button
+              class="btn btn-primary"
+              (click)="saveConfig()"
+              [disabled]="isSaving()">
+              {{ isSaving() ? 'Saving...' : 'Save Max Retry' }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              (click)="resetMaxRetry()">
+              Reset Max Retry
+            </button>
+          </div>
+          @if (message()) {
+            <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
+              {{ message() }}
+            </div>
+          }
         </div>
-
-        <div class="config-section">
-          <h4 class="subsection-title">Stream Configuration (Read-only)</h4>
-
-          <div class="form-group">
-            <label for="streamName">Main Stream Name</label>
-            <input
-              id="streamName"
-              type="text"
-              [(ngModel)]="config.streamName"
-              placeholder="test-stream"
-              class="form-input"
-              readonly>
-          </div>
-
-          <div class="form-group">
-            <label for="dlqStreamName">DLQ Stream Name</label>
-            <input
-              id="dlqStreamName"
-              type="text"
-              [(ngModel)]="config.dlqStreamName"
-              placeholder="test-stream:dlq"
-              class="form-input"
-              readonly>
-          </div>
-
-          <div class="form-group">
-            <label for="consumerGroup">Consumer Group</label>
-            <input
-              id="consumerGroup"
-              type="text"
-              [(ngModel)]="config.consumerGroup"
-              placeholder="test-group"
-              class="form-input"
-              readonly>
-          </div>
-
-          <div class="form-group">
-            <label for="consumerName">Consumer Name</label>
-            <input
-              id="consumerName"
-              type="text"
-              [(ngModel)]="config.consumerName"
-              placeholder="consumer-1"
-              class="form-input"
-              readonly>
-          </div>
-        </div>
-
-        <div class="config-section">
-          <h4 class="subsection-title">DLQ Parameters</h4>
-
-          <div class="form-group highlight">
-            <label for="maxDeliveries">
-              Max Retry (Max Deliveries) - Editable
-              <span class="label-hint">Messages will be sent to DLQ after this many delivery attempts</span>
-            </label>
-            <input
-              id="maxDeliveries"
-              type="number"
-              [(ngModel)]="config.maxDeliveries"
-              min="1"
-              max="100"
-              class="form-input editable">
-            <div class="input-hint">Current value: {{ config.maxDeliveries }} attempts</div>
-          </div>
-
-          <div class="form-group">
-            <label for="minIdleMs">
-              Min Idle Time (ms)
-              <span class="label-hint">Minimum time a message must be idle before reclaim</span>
-            </label>
-            <input
-              id="minIdleMs"
-              type="number"
-              [(ngModel)]="config.minIdleMs"
-              min="0"
-              step="1000"
-              class="form-input"
-              readonly>
-            <div class="input-hint">{{ config.minIdleMs / 1000 }} seconds</div>
-          </div>
-
-          <div class="form-group">
-            <label for="count">
-              Batch Size
-              <span class="label-hint">Max messages to process per claim operation</span>
-            </label>
-            <input
-              id="count"
-              type="number"
-              [(ngModel)]="config.count"
-              min="1"
-              max="1000"
-              class="form-input"
-              readonly>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button
-            class="btn btn-primary"
-            (click)="saveConfig()"
-            [disabled]="isSaving()">
-            {{ isSaving() ? 'Saving...' : 'Save Max Retry' }}
-          </button>
-          <button
-            class="btn btn-secondary"
-            (click)="resetMaxRetry()">
-            Reset Max Retry
-          </button>
-        </div>
-
-        <div *ngIf="message()" class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
-          {{ message() }}
-        </div>
-      </div>
+      }
     </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+    `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .dlq-config {
       display: flex;

@@ -1,5 +1,5 @@
 import { Component, Input, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { WebSocketService, DLQEvent } from '../../services/websocket.service';
 import { RedisApiService } from '../../services/redis-api.service';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
@@ -31,7 +31,7 @@ export interface StreamMessage {
 @Component({
   selector: 'app-stream-viewer',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="stream-viewer" [style.height.px]="containerHeight">
@@ -42,53 +42,71 @@ export interface StreamMessage {
           <span class="status-text">{{ isConnected ? 'Connected' : 'Disconnected' }}</span>
         </div>
       </div>
-
+    
       <div class="messages-container">
         <!-- "More messages..." indicator at top -->
-        <div *ngIf="hasMoreMessages" class="more-messages">
-          ... {{ totalMessages - pageSize }} more messages ...
-        </div>
-
-        <!-- Messages as compact cells -->
-        <div *ngFor="let message of displayedMessages"
-             class="message-cell"
-             [style.flex]="'0 0 ' + messageHeight + 'px'"
-             [class.flash-error]="message.isFlashingError"
-             [class.flash-success]="message.isFlashingSuccess"
-             [class.next-to-process]="message.isNextToProcess">
-          <span *ngIf="showNextIndicator && message.isNextToProcess" class="next-indicator">➡️</span>
-          <div class="message-header">
-            <span class="message-id">{{ message.id }}</span>
-            <span class="badges">
-              <span *ngIf="message.isPoison" class="badge poison" title="XNACK FATAL: delivery counter at max — swept to DLQ on next poll">∞ poison</span>
-              <span *ngIf="!message.isPoison && message.deliveryCount !== undefined" class="badge deliveries" title="PEL delivery count">{{ message.deliveryCount }}×</span>
-              <span *ngIf="message.isReleased" class="badge released" title="XNACK-released: unowned, immediately re-claimable">released</span>
-            </span>
+        @if (hasMoreMessages) {
+          <div class="more-messages">
+            ... {{ totalMessages - pageSize }} more messages ...
           </div>
-          <div class="message-content">
-            <div *ngFor="let field of getFields(message.fields)" class="field-row">
-              <span class="field-key">{{ field.key }}</span>
-              <span class="field-value">{{ field.value }}</span>
+        }
+    
+        <!-- Messages as compact cells -->
+        @for (message of displayedMessages; track message) {
+          <div
+            class="message-cell"
+            [style.flex]="'0 0 ' + messageHeight + 'px'"
+            [class.flash-error]="message.isFlashingError"
+            [class.flash-success]="message.isFlashingSuccess"
+            [class.next-to-process]="message.isNextToProcess">
+            @if (showNextIndicator && message.isNextToProcess) {
+              <span class="next-indicator">➡️</span>
+            }
+            <div class="message-header">
+              <span class="message-id">{{ message.id }}</span>
+              <span class="badges">
+                @if (message.isPoison) {
+                  <span class="badge poison" title="XNACK FATAL: delivery counter at max — swept to DLQ on next poll">∞ poison</span>
+                }
+                @if (!message.isPoison && message.deliveryCount !== undefined) {
+                  <span class="badge deliveries" title="PEL delivery count">{{ message.deliveryCount }}×</span>
+                }
+                @if (message.isReleased) {
+                  <span class="badge released" title="XNACK-released: unowned, immediately re-claimable">released</span>
+                }
+              </span>
+            </div>
+            <div class="message-content">
+              @for (field of getFields(message.fields); track field) {
+                <div class="field-row">
+                  <span class="field-key">{{ field.key }}</span>
+                  <span class="field-value">{{ field.value }}</span>
+                </div>
+              }
             </div>
           </div>
-        </div>
-
+        }
+    
         <!-- Empty state -->
-        <div *ngIf="displayedMessages.length === 0 && !isLoading" class="empty-state">
-          No messages in stream
-        </div>
-
+        @if (displayedMessages.length === 0 && !isLoading) {
+          <div class="empty-state">
+            No messages in stream
+          </div>
+        }
+    
         <!-- Loading state -->
-        <div *ngIf="isLoading" class="loading-state">
-          Loading messages...
-        </div>
+        @if (isLoading) {
+          <div class="loading-state">
+            Loading messages...
+          </div>
+        }
       </div>
-
+    
       <div class="stream-footer">
         <span class="message-count">{{ displayedMessages.length }} of {{ totalMessages }} messages</span>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     .stream-viewer {
       background: white;

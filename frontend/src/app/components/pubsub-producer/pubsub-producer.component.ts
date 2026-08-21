@@ -1,5 +1,5 @@
 import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
@@ -8,16 +8,20 @@ import { HttpClient } from '@angular/common/http';
  * 
  * Provides a form to create and publish messages with custom fields.
  */
+interface PublishResponse {
+  subscriberCount: number;
+}
+
 @Component({
   selector: 'app-pubsub-producer',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <div class="producer-container">
       <div class="producer-header">
         <h3 class="producer-title">📤 Producer</h3>
       </div>
-
+    
       <div class="producer-content">
         <div class="form-group">
           <label for="channel">Channel</label>
@@ -28,46 +32,50 @@ import { HttpClient } from '@angular/common/http';
             placeholder="fire-and-forget"
             class="form-input">
         </div>
-
+    
         <div class="form-group">
-          <label>Message Payload</label>
+          <span class="group-label">Message Payload</span>
           <div class="payload-fields">
-            <div *ngFor="let field of fields(); let i = index" class="field-row">
-              <input
-                type="text"
-                [(ngModel)]="field.key"
-                placeholder="Key"
-                class="form-input field-key">
-              <input
-                type="text"
-                [(ngModel)]="field.value"
-                placeholder="Value"
-                class="form-input field-value">
-              <button
-                (click)="removeField(i)"
-                class="btn-remove"
-                [disabled]="fields().length === 1">
-                ✕
-              </button>
-            </div>
+            @for (field of fields(); track field; let i = $index) {
+              <div class="field-row">
+                <input
+                  type="text"
+                  [(ngModel)]="field.key"
+                  placeholder="Key"
+                  class="form-input field-key">
+                <input
+                  type="text"
+                  [(ngModel)]="field.value"
+                  placeholder="Value"
+                  class="form-input field-value">
+                <button
+                  (click)="removeField(i)"
+                  class="btn-remove"
+                  [disabled]="fields().length === 1">
+                  ✕
+                </button>
+              </div>
+            }
           </div>
           <button (click)="addField()" class="btn-add">+ Add Field</button>
         </div>
-
+    
         <button
           (click)="publishMessage()"
           [disabled]="isPublishing()"
           class="btn-publish">
           {{ isPublishing() ? 'Publishing...' : '🚀 Publish Message' }}
         </button>
-
-        <div *ngIf="message()" class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
-          {{ message() }}
-        </div>
+    
+        @if (message()) {
+          <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
+            {{ message() }}
+          </div>
+        }
       </div>
     </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.Eager,
+    `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .producer-container {
       display: flex;
@@ -101,7 +109,7 @@ import { HttpClient } from '@angular/common/http';
       margin-bottom: 16px;
     }
 
-    label {
+    label, .group-label {
       display: block;
       font-size: 14px;
       font-weight: 500;
@@ -260,7 +268,7 @@ export class PubsubProducerComponent {
     });
 
     // Publish
-    this.http.post<any>(`${this.apiUrl}/publish`, {
+    this.http.post<PublishResponse>(`${this.apiUrl}/publish`, {
       channel: this.channel,
       payload: payload
     }).subscribe({

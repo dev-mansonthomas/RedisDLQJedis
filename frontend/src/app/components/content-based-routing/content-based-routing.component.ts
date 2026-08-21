@@ -1,5 +1,5 @@
 import { Component, OnInit, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
@@ -12,10 +12,20 @@ interface RoutingRule {
   target: string;
 }
 
+interface RulesResponse {
+  success: boolean;
+  rules: Record<string, RoutingRule>;
+}
+
+interface SubmitPaymentResponse {
+  paymentId: string;
+  willRouteTo: string;
+}
+
 @Component({
   selector: 'app-content-based-routing',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
+  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './content-based-routing.component.html',
   styleUrl: './content-based-routing.component.scss'
@@ -73,7 +83,7 @@ export class ContentBasedRoutingComponent implements OnInit {
   }
 
   loadRoutingRules(): void {
-    this.http.get<any>(`${this.apiUrl}/rules`).subscribe({
+    this.http.get<RulesResponse>(`${this.apiUrl}/rules`).subscribe({
       next: (res) => {
         if (res.success) {
           this.routingRules.set(res.rules);
@@ -112,7 +122,7 @@ export class ContentBasedRoutingComponent implements OnInit {
     // Use current paymentId for the request
     const currentPaymentId = this.paymentId();
 
-    this.http.post<any>(`${this.apiUrl}/submit`, {
+    this.http.post<SubmitPaymentResponse>(`${this.apiUrl}/submit`, {
       paymentId: currentPaymentId,
       amount: this.amount(),
       country: this.country(),
@@ -137,7 +147,7 @@ export class ContentBasedRoutingComponent implements OnInit {
   }
 
   clearStreams(): void {
-    this.http.delete<any>(`${this.apiUrl}/clear`).subscribe({
+    this.http.delete<void>(`${this.apiUrl}/clear`).subscribe({
       next: () => {
         this.submitMessage.set('✅ All streams cleared');
         this.refreshService.triggerRefresh();

@@ -32,9 +32,9 @@
             </div>
 
             <div class="concurrency-control">
-              <label>Max Concurrent:</label>
+              <label [attr.for]="'tb-max-' + jt.name">Max Concurrent:</label>
               <div class="slider-row">
-                <input type="range" [min]="1" [max]="6" [value]="jt.maxConcurrency"
+                <input [attr.id]="'tb-max-' + jt.name" type="range" [min]="1" [max]="6" [value]="jt.maxConcurrency"
                        (input)="updateMaxConcurrency(jt, +$any($event.target).value)">
                 <span class="slider-value">{{ jt.maxConcurrency }}</span>
               </div>
