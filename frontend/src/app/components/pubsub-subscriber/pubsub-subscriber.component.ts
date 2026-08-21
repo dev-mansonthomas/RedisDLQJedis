@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnDestroy, signal, inject } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WebSocketService } from '../../services/websocket.service';
 import { Subscription } from 'rxjs';
@@ -54,6 +54,7 @@ export interface PubSubMessage {
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .subscriber-container {
       display: flex;
