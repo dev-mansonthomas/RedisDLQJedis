@@ -48,7 +48,7 @@
   whose default runner is Vitest, and it generates the TestBed bootstrap itself — so it is `npm i -D
   vitest jsdom` plus a 1-line target. → Full plan, traps and effort:
   [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md).
-  *(Backend side is done: 93 tests as of 2026-08-04 — LLM Chat + DLQ/XNACK + work queue. The "Running
+  *(Backend side is done: **139 tests as of 2026-08-21, covering all 12 patterns**. The "Running
   Tests" section of `augmentcode/startup_instructions.md` remains aspirational.)*
 - 🟠 **No CI at all** — no `.github/` directory, so nothing enforces tests, lint or build on a PR, and the
   `git-pr-merge` flow waits on a CI that does not exist. → A workflow running `mvn clean test` +
@@ -112,10 +112,18 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
   skips) + `WorkQueueScalingIntegrationTest#neitherShippedModeLetsAFreeWorkerStealAnInFlightJob`; the
   failure mode stays characterized by `…#aFreeWorkerStealsAnInFlightJobWhenProcessingExceedsMinIdle`.
   Blog post #2 must still state the rule.
-- 🟠 **The same duplication risk is unaudited in the other claim-based patterns.** `TokenBucketService`
-  documents the `minIdle` rule for `XAUTOCLAIM` but its numbers were never checked against its simulated
-  work time, and neither was the LLM Chat recovery sweeper's. → Measure both the way the work queue was
-  measured (count unique vs total entries in the output streams after a run).
+- ✅ **The duplication risk is now audited in Token Bucket and Per-Key Serialized** — *done
+  2026-08-21*, both clean. `TokenBucketIntegrationTest#saturatingTheBucketDoesNotProcessAnyJobTwice`
+  queues 12 jobs against a cap of 3, which forces waiting messages past the 15s idle threshold and
+  back through `XAUTOCLAIM` with 18 workers in one group: no duplicate, nothing left pending, and the
+  token counter back to zero. `PerKeySerializedIntegrationTest#noJobIsProcessedTwice` does the same
+  for the per-key lock. **Worth knowing:** Token Bucket's margin is 1.5x, not the 2x rule of thumb
+  (`RECLAIM_MIN_IDLE_MS` 15000 vs a 10000ms CSV job). It is safe because minIdle still exceeds the
+  work time, but those two constants are now coupled — raising a job's processing time above 7.5s
+  without raising the reclaim threshold reintroduces the failure mode.
+- 🟠 **The LLM Chat recovery sweeper is still unaudited** for the same failure mode. It is the
+  last claim-based path with no duplicate-processing test. → Same recipe: saturate it, then assert the
+  output stream holds no duplicate message id.
 - 🟡 **`@CrossOrigin(origins = "*")` on `WorkQueueController`** contradicts the `CorsConfig`
   allow-list documented in `CLAUDE.md`. Other pattern controllers may carry the same annotation.
   → Cross-cutting security decision, deliberately out of scope for that slice.
