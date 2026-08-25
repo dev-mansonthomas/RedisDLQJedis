@@ -1,6 +1,6 @@
 import { Component, Input, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 
-import { WebSocketService, DLQEvent } from '../../services/websocket.service';
+import { WebSocketService, DLQEvent, FailureKind } from '../../services/websocket.service';
 import { RedisApiService } from '../../services/redis-api.service';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { Subscription } from 'rxjs';
@@ -17,7 +17,47 @@ export interface StreamMessage {
   isReleased?: boolean;       // XNACK-released: pending but unowned (consumer empty / idle -1)
   isPoison?: boolean;         // XNACK FATAL: counter at Long.MAX (rendered as ∞ — JSON rounds it)
   acked?: boolean;            // XACK'd by a worker. The entry STAYS in the stream (a stream is a log)
+  failureKind?: FailureKind;  // How the last attempt failed, so the row can say *what* went wrong
+  handled?: boolean;          // Attempted at least once, successfully or not — dimmed as "past"
 }
+
+/**
+ * Button label for each failure action recorded in the DLQ entry's `failedVia` field.
+ *
+ * The tokens are what Redis stores (stable, and readable in redis-cli); the *labels* live here because
+ * the buttons do. Putting UI wording in a Lua function would couple the sweep to the page's chrome.
+ */
+const ACTION_LABELS: Record<string, string> = {
+  NO_ACK: 'Timeout',
+  NACK_FAIL: 'Explicit fail',
+  NACK_FATAL: 'Poison',
+  NACK_SILENT: 'Release'
+};
+
+
+/** Header label + tooltip for each failure kind. */
+const FAILURE_LABELS: Record<FailureKind, { label: string; title: string }> = {
+  TIMEOUT: {
+    label: '⏱ timeout',
+    title: 'Simulated crash: no XACK was sent, so the entry stays owned by this consumer and is only '
+      + 'redelivered once it has been idle for minIdle ms. The retry budget was charged.'
+  },
+  EXPLICIT_FAIL: {
+    label: '⚡ explicit fail',
+    title: 'XNACK FAIL: the consumer handed the message back immediately, without waiting out minIdle. '
+      + 'The retry budget was charged all the same.'
+  },
+  // POISON and RELEASED already have their own badges, driven by the delivery counter — see the
+  // template. They are listed so the map stays exhaustive over FailureKind.
+  POISON: {
+    label: '☠ poison',
+    title: 'XNACK FATAL: delivery counter forced to max, swept to the DLQ on the next poll.'
+  },
+  RELEASED: {
+    label: '↩ released',
+    title: 'XNACK SILENT: returned untouched, retry budget refunded.'
+  }
+};
 
 /**
  * Reusable component to display Redis Stream messages with real-time updates via WebSocket.
@@ -45,10 +85,16 @@ export interface StreamMessage {
       </div>
     
       <div class="messages-container">
-        <!-- "More messages..." indicator at top -->
+        <!-- Not a control — there is no pagination, and there never was: this is the one line that
+             explains why a click can look like a no-op. The window holds the NEWEST pageSize entries
+             (XREVRANGE) while the consumer group hands out the OLDEST first, so anything hidden here is
+             processed before everything below it. Counted from what is on screen, not from pageSize:
+             a trimmed row makes those two diverge. -->
         @if (hasMoreMessages) {
-          <div class="more-messages">
-            ... {{ totalMessages - pageSize }} more messages ...
+          <div class="more-messages"
+               title="This viewer shows the newest entries (XREVRANGE). A consumer group delivers the oldest undelivered entry first, so these hidden ones are consumed before any row below — a click on Process can act on an entry you cannot see.">
+            ↑ {{ totalMessages - displayedMessages.length }} older entries not shown — the oldest is
+            processed first, so these go before the rows below
           </div>
         }
     
@@ -60,7 +106,8 @@ export interface StreamMessage {
             [class.flash-error]="message.isFlashingError"
             [class.flash-success]="message.isFlashingSuccess"
             [class.next-to-process]="message.isNextToProcess"
-            [class.acked]="message.acked">
+            [class.acked]="message.acked"
+            [class.handled]="message.handled">
             @if (showNextIndicator && message.isNextToProcess) {
               <span class="next-indicator">➡️</span>
             }
@@ -78,6 +125,17 @@ export interface StreamMessage {
                 }
                 @if (message.acked) {
                   <span class="badge acked" title="XACKed by a worker — the entry stays in the stream, because XACK is not XDEL">acked</span>
+                }
+                <!-- Only TIMEOUT / EXPLICIT_FAIL: POISON and RELEASED are already badged above from
+                     the delivery counter, and badging them twice says nothing extra. -->
+                @if (failureBadge(message); as failure) {
+                  <span class="badge failure" [title]="failure.title">{{ failure.label }}</span>
+                }
+                <!-- How this entry ended up in the DLQ. Short by design: we are already looking at a
+                     DLQ, so "fail" is a given — the full mechanism is one hover away. Written by the
+                     sweep itself (read_claim_or_dlq), so it survives a reload and is not UI memory. -->
+                @if (dlqOrigin(message); as origin) {
+                  <span class="badge dlq-origin" [title]="origin.detail">{{ origin.label }}</span>
                 }
               </span>
             </div>
@@ -355,14 +413,28 @@ export interface StreamMessage {
       color: #fecaca;
     }
 
+    .badge.failure {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .badge.dlq-origin {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      font-weight: 700;
+    }
+
     .badge.acked {
       background: #064e3b;
       color: #a7f3d0;
     }
 
-    /* Acked entries stay visible on purpose — dimmed, not removed. */
-    .message-cell.acked {
-      opacity: 0.55;
+    /* Handled entries stay visible on purpose — dimmed, not removed. Success or failure alike: what
+       matters to a viewer is how far down the stream the demo has got. */
+    .message-cell.acked,
+    .message-cell.handled {
+      opacity: 0.38;
     }
 
     .message-id {
@@ -499,7 +571,14 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
         const byId = new Map(response.messages.map(m => [m.id, m]));
         this.displayedMessages.forEach(msg => {
           const pel = byId.get(msg.id);
-          if (pel) {
+          if (msg.acked) {
+            // An XACKed entry has left the PEL for good — a stream entry is never redelivered by `>`
+            // once acknowledged. This poll can still race the ACK and read the old pending row, which
+            // put a "2×" delivery badge next to the "acked" badge on the same card.
+            msg.deliveryCount = undefined;
+            msg.isReleased = false;
+            msg.isPoison = false;
+          } else if (pel) {
             msg.isPoison = (pel.deliveryCount ?? 0) >= Number.MAX_SAFE_INTEGER;
             msg.deliveryCount = pel.deliveryCount;
             msg.isReleased = pel.consumer === '' || (pel.idleMs ?? 0) < 0;
@@ -598,6 +677,18 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Handle MESSAGE_PROCESSED (flash effect for successful processing)
     if (event.eventType === 'MESSAGE_PROCESSED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: ✅ MESSAGE_PROCESSED received!`);
+      // Persist the "done" state, not just the flash: the operator needs to see how far down the
+      // stream they have got. This event has exactly one emitter — the DLQ page's ACK path — and the
+      // entry is XACKed immediately after it, so treating it as acknowledged is accurate.
+      const processed = this.displayedMessages.find(m => m.id === event.messageId);
+      if (processed) {
+        processed.acked = true;
+        processed.handled = true;
+        processed.deliveryCount = undefined;  // no longer pending
+        processed.isReleased = false;
+        processed.failureKind = undefined;    // it succeeded in the end
+        this.cdr.markForCheck();
+      }
       this.flashMessageSuccess(event.messageId);
 
       // Move indicator to next message in the list (simple, no backend call)
@@ -614,6 +705,8 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
         acked.acked = true;
         acked.deliveryCount = undefined; // no longer pending
         acked.isReleased = false;
+        acked.failureKind = undefined;   // it succeeded in the end; stale failure badges lie
+
         this.flashMessageSuccess(event.messageId);
         this.updateNextIndicator();
         this.cdr.markForCheck();
@@ -653,6 +746,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Handle MESSAGE_RECLAIMED (flash effect for failed processing)
     if (event.eventType === 'MESSAGE_RECLAIMED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: ⚠️ MESSAGE_RECLAIMED received!`);
+      this.recordFailureKind(event);
       this.flashMessage(event.messageId);
 
       // Move indicator to next message in the list (simple, no backend call)
@@ -664,6 +758,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Handle MESSAGE_NACKED (XNACK, Redis 8.8+): flash + refresh released/poison badges
     if (event.eventType === 'MESSAGE_NACKED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: ⚡ MESSAGE_NACKED received (${event.details})`);
+      this.recordFailureKind(event);
       this.flashMessage(event.messageId);
       this.refreshPendingInfo();
       return;
@@ -702,9 +797,81 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * The reason the sweep recorded on a dead-lettered entry, or `null`.
+   *
+   * Gated on `originalId` rather than on `reason` alone, and that is not belt-and-braces: this page's
+   * own generated payloads carry a *business* `reason` field (`customer_request`, `fraud_detected`,
+   * `payment_failed`). Keying off the field name labelled a perfectly healthy entry in the main stream
+   * as if it had been dead-lettered — observed in a browser, 2026-08-25. Only the sweep writes
+   * `originalId`.
+   */
+  dlqOrigin(message: StreamMessage): { label: string; detail: string } | null {
+    const reason = message.fields['reason'];
+    const originalId = message.fields['originalId'];
+    if (!originalId || !reason) return null;
+    // `failedVia` is optional (five other services sweep without it), so fall back to naming the fact
+    // rather than the scenario.
+    const scenario = this.scenarioLabel(message.fields['failedVia']);
+    return {
+      label: `⚠ ${scenario ?? 'Dead-lettered'}`,
+      detail: `${reason} — originally ${originalId}`
+    };
+  }
+
+  /**
+   * Turns `NO_ACK,NO_ACK` into `Timeout ×2`, and a mixed run into `Timeout → Explicit fail`.
+   *
+   * Consecutive repeats are collapsed rather than listed: "×2" is how an operator counted the clicks,
+   * whereas the same label twice reads like a rendering bug. Mixing really happens — a demo where the
+   * timeout button is pressed once and the explicit-fail button once exhausts the same budget.
+   */
+  private scenarioLabel(failedVia: string | undefined): string | null {
+    if (!failedVia) return null;
+    const runs: { label: string; count: number }[] = [];
+    for (const token of failedVia.split(',')) {
+      const label = ACTION_LABELS[token] ?? token;
+      const last = runs[runs.length - 1];
+      if (last && last.label === label) {
+        last.count++;
+      } else {
+        runs.push({ label, count: 1 });
+      }
+    }
+    if (runs.length === 0) return null;
+    return runs.map(r => (r.count > 1 ? `${r.label} ×${r.count}` : r.label)).join(' → ');
+  }
+
+  /**
+   * Header badge for the last failure, or `null` when there is nothing to say.
+   *
+   * POISON and RELEASED are filtered out on purpose: the template already badges them from the
+   * delivery counter, which is the durable source, whereas this one comes from a live event.
+   */
+  failureBadge(message: StreamMessage): { label: string; title: string } | null {
+    const kind = message.failureKind;
+    if (!kind || kind === 'POISON' || kind === 'RELEASED') return null;
+    return FAILURE_LABELS[kind];
+  }
+
+  /** Stores the failure kind carried by a failure event, if the row is on screen. */
+  private recordFailureKind(event: DLQEvent): void {
+    if (!event.failureKind) return;
+    const message = this.displayedMessages.find(m => m.id === event.messageId);
+    if (message) {
+      message.failureKind = event.failureKind;
+      // A failed attempt is still an attempt: the row is behind us, so it dims like a successful one.
+      message.handled = true;
+      this.cdr.markForCheck();
+    }
+  }
+
   getFields(fields: Record<string, string>): {key: string; value: string}[] {
     // Prioritize paymentId and amount to appear first
     const priorityOrder = ['paymentId', 'amount'];
+    // Every field is rendered, the sweep's own bookkeeping included: this viewer shows what the stream
+    // holds. The header badge summarises it; it does not replace it. Cards are sized for the longest
+    // entry instead (see the DLQ viewer's messageHeight on the page).
     const entries = Object.entries(fields);
 
     return entries.sort(([keyA], [keyB]) => {

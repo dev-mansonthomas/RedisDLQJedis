@@ -54,15 +54,37 @@
 --   maxDeliver+1 FCALLs in total, each spaced by at least minIdle ms.
 --   The XREADGROUP ... CLAIM re-delivery DOES increment the delivery counter.
 --
--- DO NOT MODIFY - Used by DLQ feature
+-- DLQ ENTRY METADATA (added 2026-08-25):
+--   Each swept entry carries two extra fields beyond the original payload:
+--     reason     - 'max deliveries (N) reached', or 'poison (XNACK FATAL): ...' when the counter
+--                  was forced past 2^53 by an explicit FATAL nack
+--     originalId - the id the entry had in the source stream
+--     failedVia  - ordered, comma-separated failure actions that got it there (e.g.
+--                  'NO_ACK,NACK_FAIL'), present only when the caller passes ARGV[6]
+--   Same field names as the LLM Chat sweeper (LlmRecoverySweeper#routeToDlq), so both DLQs read
+--   alike. Consumers that only assert on original payload fields are unaffected.
+--
+-- CHANGE WITH CARE - the blog post `blog/dlq-redis-streams` quotes this function; it is published
+-- against the pinned tag blog-dlq-v1, so readers are unaffected until the post is re-tagged.
 -- ============================================================================
 
--- Helper function to copy fields from one stream entry to another
-local function xadd_copy_fields(stream, fields)
+-- A delivery counter at or above 2^53 means XNACK FATAL forced it to Long.MAX_VALUE. The threshold
+-- (rather than an equality test) is deliberate: the same value loses precision once it crosses JSON
+-- into JavaScript, so the UI compares the same way.
+local POISON_DELIVERIES = 9007199254740992
+
+-- Helper function to copy fields from one stream entry to another, optionally appending extra
+-- field/value pairs (used to record WHY an entry landed in the DLQ).
+local function xadd_copy_fields(stream, fields, extra)
   local args = {}
   for i = 1, #fields, 2 do
     args[#args + 1] = fields[i]
     args[#args + 1] = fields[i + 1]
+  end
+  if extra then
+    for i = 1, #extra do
+      args[#args + 1] = extra[i]
+    end
   end
   return redis.call('XADD', stream, '*', unpack(args))
 end
@@ -77,6 +99,19 @@ redis.register_function('read_claim_or_dlq', function(keys, args)
   local count       = tonumber(args[4])  -- Max messages to read
   local maxDeliver  = tonumber(args[5])  -- Max delivery count
 
+  -- ARGV[6] (OPTIONAL): JSON object mapping message id -> the ordered failure actions that got it
+  -- there, e.g. {"1787-0":"NO_ACK,NO_ACK"}. Deliberately the LAST argument and optional: five other
+  -- services and the blog post's six language samples call this function with exactly five args, and
+  -- they must keep working untouched. pcall'd because a malformed argument must degrade to "unknown
+  -- scenario", never break the sweep.
+  local failed_via = {}
+  if args[6] and args[6] ~= '' then
+    local ok, decoded = pcall(cjson.decode, args[6])
+    if ok and type(decoded) == 'table' then
+      failed_via = decoded
+    end
+  end
+
   -- Initialize result arrays
   local messages_to_process = {}
   local dlq_ids = {}
@@ -89,6 +124,7 @@ redis.register_function('read_claim_or_dlq', function(keys, args)
 
   -- Collect IDs of messages that exceeded max delivery count
   local to_dlq_ids = {}
+  local deliveries_by_id = {}
   for i = 1, #pending do
     local p = pending[i]  -- [id, consumer, idle, deliveries]
     local id = p[1]
@@ -97,6 +133,8 @@ redis.register_function('read_claim_or_dlq', function(keys, args)
     -- If message reached (>=) max delivery count, mark for DLQ
     if deliveries >= maxDeliver then
       to_dlq_ids[#to_dlq_ids + 1] = id
+      -- Kept so the DLQ entry can say why it is there, not just that it is.
+      deliveries_by_id[id] = deliveries
     end
   end
 
@@ -114,8 +152,23 @@ redis.register_function('read_claim_or_dlq', function(keys, args)
         local eid    = item[1]  -- Original message ID
         local fields = item[2]  -- Message fields
 
-        -- Copy message to DLQ stream
-        local new_dlq_id = xadd_copy_fields(dlq, fields)
+        -- Copy message to DLQ stream, self-describing: a DLQ entry nobody can diagnose is
+        -- useless. Field names match the LLM Chat sweeper's convention (reason / originalId).
+        local deliveries = deliveries_by_id[eid] or 0
+        local reason
+        if deliveries >= POISON_DELIVERIES then
+          reason = 'poison (XNACK FATAL): delivery counter forced to max'
+        else
+          reason = 'max deliveries (' .. deliveries .. ') reached'
+        end
+        local extra = { 'reason', reason, 'originalId', eid }
+        -- Which scenario put it here. The delivery counter says the budget ran out; only the caller
+        -- knows *how* it ran out, so it has to be told to us.
+        if failed_via[eid] then
+          extra[#extra + 1] = 'failedVia'
+          extra[#extra + 1] = failed_via[eid]
+        end
+        local new_dlq_id = xadd_copy_fields(dlq, fields, extra)
 
         -- ACK message from main stream (removes from PENDING list)
         redis.call('XACK', stream, group, eid)

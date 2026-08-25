@@ -40,7 +40,7 @@ observability over hardening.
 - **Frontend locally:** `cd frontend && npm ci && npm start` (VM runs **Node 24.16**, npm 11). `npm ci` is
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
-  0 errors, 1 cosmetic warning (long line) — measured 2026-07-31.
+  **0 errors, 0 warnings** across both files — measured 2026-08-25.
 - **Backend tests:** `mvn clean test` — **139 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **18 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **57 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -76,8 +76,9 @@ observability over hardening.
   label), clickable non-button elements carry `role`/`tabindex`/`keydown`, and **components are
   `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, and **replace** its
   value rather than mutating it in place, or the view will not refresh. Guarded by
-  `pubsub-subscriber.component.spec.ts` and `llm-chat.component.spec.ts`; both were verified by
-  injecting the bug and watching them go red. Note the failure only shows when *no* other signal is
+  `pubsub-subscriber.component.spec.ts`, `llm-chat.component.spec.ts` and
+  `dlq-narration.component.spec.ts`; all three were verified by injecting the bug and watching them go
+  red (the narration one fails 7 cases, 5 of them DOM assertions). Note the failure only shows when *no* other signal is
   written in the same turn — a co-located signal write marks the view dirty and repaints the broken
   field along with it, which is why `dlq-actions` cannot be guarded this way.
 
@@ -99,7 +100,7 @@ observability over hardening.
 
 | Page route | Pattern | Redis structure | Key streams/keys |
 |------------|---------|-----------------|------------------|
-| `/dlq` | Dead Letter Queue | Streams + Consumer Groups + Lua; **XNACK explicit failure** (Redis 8.8): `FAIL` = immediate retry (budget kept), `FATAL` = poison → DLQ next poll (counter = Long.MAX), `SILENT` = budget refunded. `POST /process {outcome}` (legacy `{shouldSucceed}` still mapped) | `test-stream`, `test-stream:dlq` |
+| `/dlq` | Dead Letter Queue | Streams + Consumer Groups + Lua; **XNACK explicit failure** (Redis 8.8): `FAIL` = immediate retry (budget kept), `FATAL` = poison → DLQ next poll (counter = Long.MAX), `SILENT` = the current delivery refunded (earlier charges stand). `POST /process {outcome}` (legacy `{shouldSucceed}` still mapped). **Narration band** (`DlqNarrationComponent` + `DlqScenarioService`) states per click what is being demonstrated and what steps remain. Swept entries carry **`reason` + `originalId`**; source rows carry a **`failureKind`** badge | `test-stream`, `test-stream:dlq` |
 | `/pubsub` | Publish/Subscribe (QoS0) | Pub/Sub channels | `fire-and-forget` |
 | `/request-reply` | Request/Reply | Streams + keyspace-expiry timeout | `order.holdInventory.v1(.response)` |
 | `/work-queue` | Work Queue (competing consumers) | Streams + 1 group, **1-8 workers adjustable at runtime** (4 at startup, in-memory); `POST`/`DELETE /workers` (`?kill=true` leaves the in-flight job PENDING — crash-recovery demo, never `XGROUP DELCONSUMER`); **`PUT /demo-mode?mode=SLOW\|FAST`** retimes the running pool (work time + `minIdle` + poll, `FAST` at startup); `POST /produce/burst?count=N` (pipelined `XADD`) builds the backlog the UI's jobs/s counter needs — the steady producer alone never does | `jobs.imageProcessing.v1`, `jobs.done.worker-{1..N}` |
@@ -121,15 +122,39 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Lua auto-loads** on startup via `RedisLuaFunctionLoader` (`@PostConstruct`, replaces the library).
 - **Stream visualization uses `XREVRANGE`** (read-only, no PENDING side effects); **processing uses
   `XREADGROUP`/Lua**. Don't read groups for display — it creates phantom pending entries.
-- **`MESSAGE_ACKED` vs `MESSAGE_DELETED`.** There is **no `XDEL` anywhere in this codebase**: a
+  **Consequence to keep in mind (measured 2026-08-25):** the viewer shows the **newest** `pageSize`
+  entries while the group delivers the **oldest** first, so once a stream exceeds the window the next
+  message to be processed is off-screen and a Process click looks like a no-op. Nothing is unreachable
+  — 12 ACKs did consume all 12 of 12 messages — but the feedback is invisible. `stream-viewer` has **no
+  pagination** (the `.more-messages` line never had a click handler); the DLQ page therefore uses
+  `pageSize=20`, and that line now states the ordering instead of pretending to be a control.
+- **`MESSAGE_ACKED` / `MESSAGE_PROCESSED` vs `MESSAGE_DELETED`.** There is **no `XDEL` anywhere in this codebase**: a
   worker finishing a message `XACK`s it and the entry stays in the stream. Workers therefore emit
   **`MESSAGE_ACKED`**, and `stream-viewer` marks the row (dimmed + `acked` badge) without touching
   `totalMessages`. **`MESSAGE_DELETED` has exactly one legitimate emitter** — `StreamMonitorService`,
   which diffs seen ids against the ids a stream still holds. Emitting it after an `XACK` is what made
-  the viewer read `0 of 199 messages` against an `XLEN` of 200.
+  the viewer read `0 of 199 messages` against an `XLEN` of 200. **Any attempted row is dimmed** (`handled`,
+  opacity 0.38) — failure as well as success, so an operator can see how far down the stream they have
+  got; `MESSAGE_PROCESSED` (one emitter: the DLQ page's ACK path) adds the `acked` badge on top — and `refreshPendingInfo` skips acked rows, because the event is broadcast before the
+  `XACK` lands and a poll in flight would otherwise re-add a `2×` badge next to `acked`.
+- **A DLQ entry says why it is there** (2026-08-25). `read_claim_or_dlq` appends `reason`
+  (`max deliveries (N) reached` / `poison (XNACK FATAL): …`) and `originalId` to every swept copy,
+  matching `LlmRecoverySweeper`'s field names. **Gate any "why was this dead-lettered" UI on
+  `originalId`, never on `reason` alone**: the DLQ page's own generated `order.cancelled` payloads carry
+  a *business* `reason` (`customer_request`, `fraud_detected`), and keying off the name labelled a
+  healthy main-stream entry as dead-lettered. Guarded by `stream-viewer.component.spec.ts`. Note the
+  blog post `blog/dlq-redis-streams` quotes this Lua function but is published against the pinned tag
+  `blog-dlq-v1`, so readers are unaffected until it is re-tagged.
+- **`DLQEvent.failureKind`** (`TIMEOUT` / `EXPLICIT_FAIL` / `POISON` / `RELEASED`) is the typed way to
+  ask how an attempt failed — do not string-match `details`. Only `TIMEOUT` and `EXPLICIT_FAIL` get a
+  row badge; the other two are already rendered from the delivery counter.
 - **XNACK semantics (Redis 8.8, verified empirically):** a released message stays in the PEL but
   **unowned** (`consumer` empty, `idle = -1`) and is immediately re-claimable (bypasses `minIdle`).
-  Counter: `SILENT` → 0, `FAIL` → kept, `FATAL` → `Long.MAX`. `XREADGROUP >` does NOT re-deliver
+  Counter: `FAIL` → kept, `FATAL` → `Long.MAX`, **`SILENT` → refunds its OWN delivery only** —
+  0 when nothing was charged before it, but a `NO_ACK` followed by a `SILENT` leaves the counter at
+  **1** (measured 2026-08-25). So "budget refunded" does not mean "clean slate": mixing Fail and
+  Release still reaches the DLQ, and the backend used to hardcode `0` here, telling the UI the budget
+  was empty while Redis said otherwise. `XREADGROUP >` does NOT re-deliver
   released messages — only the claim path does (`read_claim_or_dlq` uses `CLAIM`, unchanged).
   JSON precision: `Long.MAX` rounds in JS — the UI detects poison by threshold
   (`>= Number.MAX_SAFE_INTEGER`), never equality.

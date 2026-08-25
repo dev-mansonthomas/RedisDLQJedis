@@ -14,10 +14,14 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
 import redis.clients.jedis.args.XNackMode;
 import redis.clients.jedis.params.XAddParams;
+import redis.clients.jedis.params.XPendingParams;
 import redis.clients.jedis.params.XReadGroupParams;
 import redis.clients.jedis.resps.StreamEntry;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Service implementing the Dead Letter Queue (DLQ) messaging pattern.
@@ -54,6 +58,87 @@ public class DLQMessagingService {
     // Redis 8.4.0+ function that uses XREADGROUP CLAIM
     private static final String FUNCTION_NAME = "read_claim_or_dlq";
     private static final String LIBRARY_NAME = "stream_utils";
+
+    /** Serialises the failure history handed to the Lua sweep. Stateless, hence static. */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /**
+     * Ordered failure actions per {@code streamName|messageId}, so a dead-lettered entry can name the
+     * scenario that put it there.
+     *
+     * <p>Only this service can know it. The Lua sweep sees a delivery counter, not a button, so the
+     * history has to travel to it as an argument.
+     *
+     * <p>In-memory on purpose: Redis is wiped on every stack relaunch (ADR-0012) and the demo streams
+     * are cleared on startup, so there is no durable state for this map to fall out of step with. The
+     * entries are dropped on success, on a silent release, and once the message has been swept.
+     */
+    private final Map<String, List<String>> failureHistory = new ConcurrentHashMap<>();
+
+    private static String historyKey(String streamName, String messageId) {
+        return streamName + "|" + messageId;
+    }
+
+    /** Appends a failing action to a message's history. */
+    private void recordFailure(String streamName, String messageId, ProcessOutcome outcome) {
+        failureHistory
+            .computeIfAbsent(historyKey(streamName, messageId), k -> new CopyOnWriteArrayList<>())
+            .add(outcome.name());
+    }
+
+    /**
+     * Drops a message's history.
+     *
+     * <p>Called on an ACK (it succeeded, so there is no scenario to report) and on XNACK SILENT, which
+     * resets the delivery counter to 0 — the retry budget is refunded, so the attempts that came before
+     * it no longer describe anything.
+     */
+    private void forgetFailures(String streamName, String messageId) {
+        failureHistory.remove(historyKey(streamName, messageId));
+    }
+
+    /**
+     * The history for one stream, as the JSON object the Lua expects in ARGV[6]:
+     * {@code {"<messageId>":"NO_ACK,NACK_FAIL"}}. Empty string when there is nothing to say, which the
+     * Lua treats exactly like the argument being absent.
+     */
+    /**
+     * The delivery counter Redis currently holds for one pending entry, or 0 if it is no longer pending.
+     *
+     * <p>Used instead of arithmetic on the value we read a moment ago: this page exists to show what
+     * Redis does, so the number it prints should come from Redis.
+     */
+    private long pelDeliveryCount(String streamName, String groupName, String messageId) {
+        try (var jedis = jedisPool.getResource()) {
+            var entryId = new StreamEntryID(messageId);
+            var pending = jedis.xpending(streamName, groupName,
+                XPendingParams.xPendingParams().start(entryId).end(entryId).count(1));
+            return (pending == null || pending.isEmpty()) ? 0L : pending.getFirst().getDeliveredTimes();
+        } catch (Exception e) {
+            log.warn("Could not read the delivery count for {}: {}", messageId, e.getMessage());
+            return 0L;
+        }
+    }
+
+    private String failureHistoryArg(String streamName) {
+        String prefix = streamName + "|";
+        Map<String, String> byId = new LinkedHashMap<>();
+        failureHistory.forEach((key, actions) -> {
+            if (key.startsWith(prefix)) {
+                byId.put(key.substring(prefix.length()), String.join(",", actions));
+            }
+        });
+        if (byId.isEmpty()) {
+            return "";
+        }
+        try {
+            return JSON.writeValueAsString(byId);
+        } catch (Exception e) {
+            // The scenario label is a nicety; losing it must never cost us the sweep.
+            log.warn("Could not serialise the failure history for {}: {}", streamName, e.getMessage());
+            return "";
+        }
+    }
 
     /**
      * Initializes the consumer group for a stream if it doesn't exist.
@@ -164,7 +249,9 @@ public class DLQMessagingService {
                     params.getConsumerName(),
                     String.valueOf(params.getMinIdleMs()),
                     String.valueOf(params.getCount()),
-                    String.valueOf(params.getMaxDeliveries())
+                    String.valueOf(params.getMaxDeliveries()),
+                    // ARGV[6]: which scenario failed each pending message, so the swept entry can say so.
+                    failureHistoryArg(params.getStreamName())
                 )
             );
 
@@ -525,7 +612,9 @@ public class DLQMessagingService {
                     params.getConsumerName(),
                     String.valueOf(params.getMinIdleMs()),
                     String.valueOf(count),
-                    String.valueOf(params.getMaxDeliveries())
+                    String.valueOf(params.getMaxDeliveries()),
+                    // ARGV[6]: see the other call site — the sweep cannot know the button, we can.
+                    failureHistoryArg(params.getStreamName())
                 )
             );
 
@@ -553,6 +642,10 @@ public class DLQMessagingService {
                                 String dlqId = convertToString(dlqEntry.get(1));
 
                                 log.info("Message {} routed to DLQ with ID {}", originalId, dlqId);
+
+                                // The scenario is now recorded on the DLQ entry itself; keeping it here
+                                // would leak one map entry per demonstrated failure.
+                                forgetFailures(params.getStreamName(), originalId);
 
                                 // Broadcast DLQ event
                                 webSocketEventService.broadcastEvent(DLQEvent.builder()
@@ -846,6 +939,8 @@ public class DLQMessagingService {
                 );
 
                 if (acked) {
+                    // It succeeded in the end: there is no failure scenario left to report.
+                    forgetFailures(params.getStreamName(), message.getId());
                     response.put("success", true);
                     response.put("message", String.format("✓ Message %s processed successfully (deliveryCount: %d)",
                         message.getId(), message.getDeliveryCount()));
@@ -858,6 +953,7 @@ public class DLQMessagingService {
                 }
             } else if (outcome == ProcessOutcome.NO_ACK) {
                 // Simulate failed processing - do NOT acknowledge (message will retry)
+                recordFailure(params.getStreamName(), message.getId(), outcome);
                 response.put("success", true);
                 response.put("message", String.format("✗ Message %s processing failed (will retry, deliveryCount: %d)",
                     message.getId(), message.getDeliveryCount()));
@@ -874,6 +970,7 @@ public class DLQMessagingService {
                     .consumer(params.getConsumerName())
                     .streamName(params.getStreamName())
                     .details("Processing failed - will retry")
+                    .failureKind(DLQEvent.FailureKind.TIMEOUT)
                     .build());
 
                 log.info("Message {} not acknowledged - will be retried", message.getId());
@@ -891,8 +988,20 @@ public class DLQMessagingService {
                     return response;
                 }
 
+                // Only actions that CHARGE the retry budget belong in the history, so failedVia mirrors
+                // the delivery counter exactly. SILENT refunds its own delivery and leaves earlier
+                // charges standing (measured 2026-08-25), so it neither adds to the history nor erases
+                // it — erasing made a swept entry report one failure for two clicks.
+                if (outcome != ProcessOutcome.NACK_SILENT) {
+                    recordFailure(params.getStreamName(), message.getId(), outcome);
+                }
+
                 long counterAfter = switch (outcome) {
-                    case NACK_SILENT -> 0L;
+                    // Measured, not assumed: SILENT refunds only its OWN delivery. With no earlier
+                    // charged attempt the counter lands on 0, but after one NO_ACK it stays at 1 —
+                    // hardcoding 0 told the UI the budget was empty when Redis said otherwise.
+                    case NACK_SILENT -> pelDeliveryCount(
+                        params.getStreamName(), params.getConsumerGroup(), message.getId());
                     case NACK_FATAL -> Long.MAX_VALUE;
                     default -> (long) message.getDeliveryCount();
                 };
@@ -921,6 +1030,11 @@ public class DLQMessagingService {
                     .consumer(params.getConsumerName())
                     .streamName(params.getStreamName())
                     .details("XNACK " + mode)
+                    .failureKind(switch (outcome) {
+                        case NACK_FATAL -> DLQEvent.FailureKind.POISON;
+                        case NACK_SILENT -> DLQEvent.FailureKind.RELEASED;
+                        default -> DLQEvent.FailureKind.EXPLICIT_FAIL;
+                    })
                     .build());
 
                 log.info("Message {} XNACKed with mode {}", message.getId(), mode);
@@ -961,6 +1075,7 @@ public class DLQMessagingService {
      * @param dlqStreamName DLQ stream name
      */
     public void cleanup(String streamName, String dlqStreamName) {
+        failureHistory.keySet().removeIf(key -> key.startsWith(streamName + "|"));
         log.info("Cleaning up streams: {}, {}", streamName, dlqStreamName);
 
         try (var jedis = jedisPool.getResource()) {
@@ -998,6 +1113,9 @@ public class DLQMessagingService {
      * @return true if the stream was deleted, false if it didn't exist
      */
     public boolean deleteStream(String streamName) {
+        // The entries it described no longer exist; keeping their history would resurface a stale
+        // scenario on the next message that happens to reuse an id.
+        failureHistory.keySet().removeIf(key -> key.startsWith(streamName + "|"));
         log.info("Deleting stream: {}", streamName);
 
         try (var jedis = jedisPool.getResource()) {

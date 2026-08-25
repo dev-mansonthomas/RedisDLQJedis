@@ -68,6 +68,32 @@ public class DLQEvent {
     private String streamName;
 
     /**
+     * How the last processing attempt failed, when it failed.
+     *
+     * <p>Typed rather than sniffed out of {@link #details}: the UI badges the entry with the kind of
+     * error it suffered, and a string match on a human-readable sentence is not a contract. {@code null}
+     * for every event that is not a failure.
+     */
+    private FailureKind failureKind;
+
+    /**
+     * Kinds of processing failure a message can suffer on this page.
+     *
+     * <p>{@code POISON} and {@code RELEASED} are XNACK outcomes the stream viewer already badges from
+     * the delivery counter; they are named here so the event stays self-describing.
+     */
+    public enum FailureKind {
+        /** No XACK at all — a simulated crash. The entry stays owned until {@code minIdle} elapses. */
+        TIMEOUT,
+        /** XNACK FAIL — handed back immediately, retry budget still charged. */
+        EXPLICIT_FAIL,
+        /** XNACK FATAL — delivery counter forced to max, swept to the DLQ on the next poll. */
+        POISON,
+        /** XNACK SILENT — returned untouched, retry budget refunded. Not a failure of the message. */
+        RELEASED
+    }
+
+    /**
      * Enum defining the types of DLQ events
      */
     public enum EventType {

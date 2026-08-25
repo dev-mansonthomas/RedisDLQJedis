@@ -16,7 +16,12 @@ export interface DLQEvent {
   consumer?: string;
   details?: string;
   timestamp?: string;
+  /** How the last attempt failed (backend `DLQEvent.FailureKind`); absent when nothing failed. */
+  failureKind?: FailureKind;
 }
+
+/** Mirrors the backend `DLQEvent.FailureKind` enum. */
+export type FailureKind = 'TIMEOUT' | 'EXPLICIT_FAIL' | 'POISON' | 'RELEASED';
 
 /**
  * Pub/Sub events travel on the same socket as {@link DLQEvent} (backend `PubSubEvent`).
