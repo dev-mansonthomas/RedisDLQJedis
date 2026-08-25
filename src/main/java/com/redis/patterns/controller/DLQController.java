@@ -192,6 +192,9 @@ public class DLQController {
             response.put("streamName", streamName);
             response.put("messages", messages);
             response.put("count", messages.size());
+            // The size of the page cannot reveal that the page was truncated: a viewer holding 5 of 11
+            // entries was told the stream held 5 and rendered "5 of 5 messages". XLEN is O(1).
+            response.put("streamLength", dlqMessagingService.getStreamLength(streamName));
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {

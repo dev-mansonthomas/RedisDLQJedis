@@ -40,7 +40,10 @@
     <div class="streams-section">
       <div class="streams-row">
         <div class="stream-wrapper incoming">
-          <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="5" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
+          <!-- pageSize 20, not 5: the default batch is 11 jobs and the consumer group takes the OLDEST
+               first, so a 5-row window hid every job that was about to run — including the five #1001
+               jobs that demonstrate the serialization. Same reason the DLQ page uses 20. -->
+          <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="20" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
         </div>
       </div>
       <div class="streams-row workers">

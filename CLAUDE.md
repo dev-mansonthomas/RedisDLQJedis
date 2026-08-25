@@ -41,7 +41,7 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   **0 errors, 0 warnings** across both files — measured 2026-08-25.
-- **Backend tests:** `mvn clean test` — **146 tests, all 12 patterns covered**. Integration tests use a
+- **Backend tests:** `mvn clean test` — **148 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **82 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **86 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -126,8 +126,20 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   entries while the group delivers the **oldest** first, so once a stream exceeds the window the next
   message to be processed is off-screen and a Process click looks like a no-op. Nothing is unreachable
   — 12 ACKs did consume all 12 of 12 messages — but the feedback is invisible. `stream-viewer` has **no
-  pagination** (the `.more-messages` line never had a click handler); the DLQ page therefore uses
-  `pageSize=20`, and that line now states the ordering instead of pretending to be a control.
+  pagination** (the `.more-messages` line never had a click handler); the DLQ page and Per-Key's
+  incoming viewer therefore use `pageSize=20`, and that line now states the ordering instead of
+  pretending to be a control.
+- **`/dlq/messages` returns `streamLength` (the real `XLEN`) beside `count` (the size of the page), and
+  the viewer counts against the former.** `count` is capped by the requested page size, so a window
+  holding 5 of 11 entries reported 5 and the footer read **"5 of 5 messages"** — the truncation was
+  not merely unpaginated, it was *denied*. `hasMoreMessages` was stored derived state, initialised
+  `false` on load ("we don't know the total yet") and only flipped true when a live event pushed a row
+  off the bottom, so a stream already longer than the window when the page opened never showed the
+  "older entries not shown" line at all. It is now a **getter** over `totalMessages >
+  displayedMessages.length`; derived state that cannot go stale. Found on `/per-key-serialized`
+  2026-08-25, where the hidden entries were the five `#1001` jobs the page exists to demonstrate.
+  Guarded by `DLQMessagesTruncationTest` and `stream-viewer-truncation.component.spec.ts`. Any new
+  caller of `getMessages` must treat `streamLength` as **optional** and fall back to `count`.
 - **`MESSAGE_ACKED` / `MESSAGE_PROCESSED` vs `MESSAGE_DELETED`.** There is **no `XDEL` anywhere in this codebase**: a
   worker finishing a message `XACK`s it and the entry stays in the stream. Workers therefore emit
   **`MESSAGE_ACKED`**, and `stream-viewer` marks the row (dimmed + `acked` badge) without touching

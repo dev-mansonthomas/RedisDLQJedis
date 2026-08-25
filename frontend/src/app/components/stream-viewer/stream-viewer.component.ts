@@ -520,7 +520,18 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
   displayedMessages: StreamMessage[] = [];
   totalMessages = 0;
-  hasMoreMessages = false;
+  /**
+   * Whether the window hides older entries — **derived**, never stored.
+   *
+   * It used to be a field, set to `false` on load ("we don't know the total yet") and only flipped
+   * true when a live event pushed a row off the bottom. So a stream that was already longer than the
+   * window when the page opened claimed to show all of it: `/per-key-serialized` read "5 of 5
+   * messages" over a stream of 11, hiding the five oldest — the ones the consumer group processes
+   * first. Deriving it cannot go stale.
+   */
+  get hasMoreMessages(): boolean {
+    return this.totalMessages > this.displayedMessages.length;
+  }
   isConnected = false;
   isLoading = true;
 
@@ -614,8 +625,9 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
             timestamp: new Date().toISOString() // Timestamp not provided by API
           }));
 
-          this.totalMessages = response.count;
-          this.hasMoreMessages = false; // We don't know total count yet
+          // The stream's XLEN, not the size of the page: `count` is capped by pageSize, so a viewer
+          // reading it as the total silently claims the window holds everything.
+          this.totalMessages = response.streamLength ?? response.count;
 
           console.log(`StreamViewer [${this.stream}]: Loaded ${this.displayedMessages.length} messages`, this.displayedMessages);
 
@@ -787,7 +799,6 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       // Keep only pageSize messages
       if (this.displayedMessages.length > this.pageSize) {
         this.displayedMessages = this.displayedMessages.slice(0, this.pageSize);
-        this.hasMoreMessages = true;
       }
 
       // Update next indicator after adding new message
