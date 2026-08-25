@@ -3,6 +3,7 @@ package com.redis.patterns.service;
 import tools.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
 import com.redis.patterns.dto.LlmChatEvent;
+import com.redis.patterns.dto.PerKeySlotEvent;
 import com.redis.patterns.dto.PubSubEvent;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -248,6 +249,61 @@ public class WebSocketEventService {
 
         } catch (Exception e) {
             log.error("Failed to broadcast PubSubEvent", e);
+        }
+    }
+
+    /**
+     * Broadcasts a Per-Key slot event to all connected WebSocket clients.
+     *
+     * <p>Same broadcast-and-prune mechanics as {@link #broadcastEvent(PubSubEvent)}; kept as a
+     * separate overload rather than generified, because unifying the four is a refactor of its own.
+     *
+     * @param event The slot event to broadcast
+     */
+    public void broadcastEvent(PerKeySlotEvent event) {
+        if (shuttingDown.get()) {
+            log.debug("Shutting down, dropping PerKeySlotEvent broadcast");
+            return;
+        }
+        if (sessions.isEmpty()) {
+            log.trace("No active WebSocket sessions, skipping broadcast");
+            return;
+        }
+
+        try {
+            String message = objectMapper.writeValueAsString(event);
+            if (message == null) {
+                log.error("Failed to serialize PerKeySlotEvent to JSON");
+                return;
+            }
+            TextMessage textMessage = new TextMessage(message);
+
+            log.debug("Broadcasting PerKeySlotEvent to {} sessions: {} worker-{} {}",
+                sessions.size(), event.getPhase(), event.getWorkerId(), event.getOrderId());
+
+            for (WebSocketSession session : sessions) {
+                try {
+                    if (session.isOpen()) {
+                        // Synchronize on the session to prevent concurrent writes
+                        synchronized (session) {
+                            session.sendMessage(textMessage);
+                        }
+                        sessionStats.merge(session.getId(), 1L, (oldValue, newValue) -> oldValue + newValue);
+                    } else {
+                        // Session is closed, remove it
+                        sessions.remove(session);
+                        sessionStats.remove(session.getId());
+                        log.debug("Removed closed session: {}", session.getId());
+                    }
+                } catch (IOException e) {
+                    // Failed to send, remove the session
+                    sessions.remove(session);
+                    sessionStats.remove(session.getId());
+                    log.warn("Failed to send message to session {}, removing it", session.getId(), e);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to broadcast PerKeySlotEvent", e);
         }
     }
 
