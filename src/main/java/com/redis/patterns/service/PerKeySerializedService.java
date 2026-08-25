@@ -1,6 +1,7 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.dto.DLQEvent;
+import com.redis.patterns.dto.PerKeySlotEvent;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -192,12 +193,28 @@ public class PerKeySerializedService implements CommandLineRunner {
             // Don't wait! Leave message pending, it will be claimed later via XAUTOCLAIM
             log.info("Worker-{}: orderId={} is LOCKED, skipping action={} (will retry later)",
                 workerId, orderId, action);
+
+            // The refusal is the pattern working, so the UI is told about it: a log line only was
+            // invisible to the very people the demo is for.
+            webSocketEventService.broadcastEvent(PerKeySlotEvent.builder()
+                .phase(PerKeySlotEvent.Phase.LOCK_SKIPPED)
+                .workerId(workerId).orderId(orderId).action(action)
+                .messageId(messageId).atMs(System.currentTimeMillis())
+                .build());
             return;
         }
 
         try {
             log.info("Worker-{}: PROCESSING orderId={}, action={} (messageId={})",
                 workerId, orderId, action, messageId);
+
+            // Emitted BEFORE the sleep: a job that only shows up once it is over cannot show
+            // occupancy, which is the whole point of the time-slot grid.
+            webSocketEventService.broadcastEvent(PerKeySlotEvent.builder()
+                .phase(PerKeySlotEvent.Phase.STARTED)
+                .workerId(workerId).orderId(orderId).action(action)
+                .messageId(messageId).atMs(System.currentTimeMillis())
+                .build());
 
             // Simulate processing
             Thread.sleep(PROCESSING_SLEEP_MS);
@@ -210,6 +227,12 @@ public class PerKeySerializedService implements CommandLineRunner {
             doneFields.put("processedAt", Instant.now().toString());
 
             jedis.xadd(doneStream, XAddParams.xAddParams(), doneFields);
+
+            webSocketEventService.broadcastEvent(PerKeySlotEvent.builder()
+                .phase(PerKeySlotEvent.Phase.FINISHED)
+                .workerId(workerId).orderId(orderId).action(action)
+                .messageId(messageId).atMs(System.currentTimeMillis())
+                .build());
 
             // ACK the message
             jedis.xack(JOB_STREAM, JOB_GROUP, new StreamEntryID(messageId));
