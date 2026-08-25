@@ -6,6 +6,7 @@ import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component'
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { keyColor } from '../../services/key-color';
 
 interface Job {
   orderId: string;
@@ -119,15 +120,7 @@ export class PerKeySerializedComponent implements OnInit {
   }
 
   getOrderColor(orderId: string): string {
-    const colors: Record<string, string> = {
-      '#1001': '#3b82f6',  // blue
-      '#2002': '#10b981',  // green
-      '#3003': '#f59e0b',  // orange
-      '#4004': '#8b5cf6',  // purple
-      '#5005': '#ec4899',  // pink
-      '#6006': '#14b8a6'   // teal
-    };
-    return colors[orderId] || '#64748b';
+    return keyColor(orderId);
   }
 }
 
