@@ -27,7 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Covers the released-PEL-entry shape (no owner, idle -1) through
  * {@link DLQMessagingService#getPendingMessages}, and the three XNACK modes' effect on the
- * delivery counter (SILENT → 0, FAIL → kept, FATAL → Long.MAX poison).
+ * delivery counter (FAIL → kept, FATAL → Long.MAX poison, and SILENT → refunds only its OWN
+ * delivery, which is 0 exactly when nothing was charged before it).
  */
 class DLQXnackIntegrationTest extends AbstractRedisIntegrationTest {
 
@@ -194,6 +195,56 @@ class DLQXnackIntegrationTest extends AbstractRedisIntegrationTest {
         List<DLQMessage> redelivered = service.getNextMessages(longIdleParams(), 10);
         assertThat(redelivered).extracting(DLQMessage::getId).containsExactly(id);
         assertThat(onlyPending().get("deliveryCount")).isEqualTo(1L);
+    }
+
+    /**
+     * The gap that let a wrong belief stand: {@link #nackSilent_refundsCounter} only ever releases a
+     * message on its *first* delivery, where the counter does land on 0. It does not follow that SILENT
+     * clears the history — and it does not.
+     */
+    @Test
+    void nackSilent_afterAChargedAttempt_refundsOnlyItsOwnDelivery() throws InterruptedException {
+        service.produceMessage(STREAM, Map.of("type", "order.created", "order_id", "10"));
+
+        service.processNextMessage(ProcessOutcome.NO_ACK);
+        assertThat(onlyPending().get("deliveryCount")).isEqualTo(1L);
+
+        // Default minIdleMs is 100 ms, so the owned entry becomes claimable again.
+        Thread.sleep(200);
+        Map<String, Object> resp = service.processNextMessage(ProcessOutcome.NACK_SILENT);
+
+        assertThat(resp.get("success")).isEqualTo(true);
+        // Redis keeps the earlier charge: the release refunds its own delivery, not the clock.
+        assertThat(onlyPending().get("deliveryCount")).isEqualTo(1L);
+        // And the response must say the same thing. It used to hardcode 0, telling the UI the retry
+        // budget was empty while Redis held one charged attempt.
+        assertThat(resp.get("deliveryCount")).isEqualTo(1L);
+    }
+
+    /**
+     * A dead-lettered entry has to name the scenario that put it there, because "max deliveries
+     * reached" does not tell an operator which button they pressed.
+     */
+    @Test
+    void sweptEntry_recordsTheActionsThatChargedTheBudget() throws InterruptedException {
+        service.produceMessage(STREAM, Map.of("type", "order.created", "order_id", "11"));
+
+        service.processNextMessage(ProcessOutcome.NO_ACK);
+        Thread.sleep(200);
+        service.processNextMessage(ProcessOutcome.NACK_FAIL);
+        Thread.sleep(200);
+        // maxDeliveries is 2, so this poll is the one that sweeps.
+        service.processNextMessage(ProcessOutcome.NO_ACK);
+
+        try (var jedis = jedisPool.getResource()) {
+            assertThat(jedis.xlen(DLQ_STREAM)).isEqualTo(1L);
+            Map<String, String> fields = jedis.xrange(DLQ_STREAM, "-", "+", 10).getFirst().getFields();
+            assertThat(fields).containsEntry("order_id", "11");
+            assertThat(fields.get("reason")).contains("max deliveries");
+            assertThat(fields).containsKey("originalId");
+            // Ordered, and mixed: pretending one button did it would be a lie.
+            assertThat(fields.get("failedVia")).isEqualTo("NO_ACK,NACK_FAIL");
+        }
     }
 
     @Test
