@@ -45,6 +45,7 @@ New DTO `PerKeySlotEvent`, broadcast on the existing socket via a new
 
 | Field | Type | Notes |
 |-------|------|-------|
+| `eventType` | `String` | always `PER_KEY_SLOT` — every event on this socket carries an `eventType`, and components filter on it before looking at anything else (`pubsub-subscriber` does exactly this). Found while planning; without it a component cannot tell this event from a `DLQEvent`. |
 | `phase` | `STARTED` \| `FINISHED` \| `LOCK_SKIPPED` | |
 | `workerId` | `int` | 1..3 (`NUM_WORKERS`) — the column |
 | `orderId` | `String` | the key — the colour |
