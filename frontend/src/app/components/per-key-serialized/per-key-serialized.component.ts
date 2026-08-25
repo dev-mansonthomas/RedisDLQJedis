@@ -7,6 +7,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 import { keyColor } from '../../services/key-color';
+import { PerKeyLanesComponent } from '../per-key-lanes/per-key-lanes.component';
 
 interface Job {
   orderId: string;
@@ -21,7 +22,7 @@ interface SubmitJobsResponse {
 @Component({
   selector: 'app-per-key-serialized',
   standalone: true,
-  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent],
+  imports: [FormsModule, StreamViewerComponent, MermaidDiagramComponent, PerKeyLanesComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './per-key-serialized.component.html',
   styleUrl: './per-key-serialized.component.scss'
