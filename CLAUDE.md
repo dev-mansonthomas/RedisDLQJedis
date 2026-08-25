@@ -41,7 +41,7 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   **0 errors, 0 warnings** across both files — measured 2026-08-25.
-- **Backend tests:** `mvn clean test` — **139 tests, all 12 patterns covered**. Integration tests use a
+- **Backend tests:** `mvn clean test` — **146 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **57 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **82 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -109,7 +109,7 @@ observability over hardening.
 | `/pubsub-topic-routing` | Topic Routing (Pub/Sub) | `PSUBSCRIBE` patterns | `order.<region>.<event>` |
 | `/content-routing` | Content-Based Routing | Streams + amount thresholds | `payments.incoming.v1` → tiers |
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
-| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key | `jobs.perkey.v1`, `running:order:{id}` |
+| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 4s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
 | `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010); **conversation persists across page reload** (frontend keeps the cid in `localStorage` → `chat:{cid}` is the source of truth) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
 
@@ -145,6 +145,19 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   healthy main-stream entry as dead-lettered. Guarded by `stream-viewer.component.spec.ts`. Note the
   blog post `blog/dlq-redis-streams` quotes this Lua function but is published against the pinned tag
   `blog-dlq-v1`, so readers are unaffected until it is re-tagged.
+- **Per-key worker occupancy travels on `PerKeySlotEvent`, not `DLQEvent`** — a fourth
+  `WebSocketEventService.broadcastEvent` overload, `eventType` always `PER_KEY_SLOT`. `DLQEvent` is
+  consumed by `stream-viewer` on all twelve pages and its payload (payload / deliveryCount /
+  failureKind) says nothing about which worker holds which key; same precedent as `PubSubEvent`. Its
+  `atMs` is **epoch millis, not a formatted timestamp**, because the grid does arithmetic on it — slot
+  binning and interval comparison. Two rules the model exists to enforce: a violation is **overlap of
+  two runs' `[start, end)` intervals on one key**, never two cells landing in the same slot (measured
+  2026-08-25: on a deliberately breached run, slot collision flagged 5 rows where interval judgement
+  flagged 4 — the extras were hand-offs inside one second), and an interval **floors at one slot**, or
+  a job whose `STARTED` is the newest event has zero width, paints no cell and overlaps nothing.
+  **Breaching this pattern on purpose needs `LOCK_TTL_MS` below the work time, not just
+  `RECLAIM_MIN_IDLE_MS`** — an early claimant meeting a live lock is refused, which is the pattern
+  working.
 - **`DLQEvent.failureKind`** (`TIMEOUT` / `EXPLICIT_FAIL` / `POISON` / `RELEASED`) is the typed way to
   ask how an attempt failed — do not string-match `details`. Only `TIMEOUT` and `EXPLICIT_FAIL` get a
   row badge; the other two are already rendered from the delivery counter.

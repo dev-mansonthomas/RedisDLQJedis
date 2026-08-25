@@ -25,7 +25,7 @@ the same `orderId` at once), without a global lock.
 - Lock held by another → **skip** (don't block); leave message pending. `XAUTOCLAIM` (idle 10s,
   above the ~4s processing time) re-delivers it later, by which time the holder has released the lock.
 
-## Time-slot lanes (spec — not yet implemented)
+## Time-slot lanes
 
 ### Why
 The guarantee *is* the pattern, and the page never showed it. A viewer sees jobs land in three done
@@ -121,6 +121,35 @@ spanning four slots outlines four rows but counts once).
 - At least one hatched `LOCK_SKIPPED` marker appears while `#1001` is held (the other workers do try).
 - Injecting two overlapping runs on one key outlines the row and increments the counter.
 - Slot binning and overlap detection are **pure functions**, unit-tested without timers.
+
+**Measured 2026-08-25** against the Docker stack (backend rebuilt, default batch submitted, grid
+watched for 40 s):
+
+| Criterion | Result |
+|-----------|--------|
+| No row holds two cells of the same colour | 0 rows, over 40 slots |
+| The `#1001` jobs occupy consecutive, non-overlapping ranges | t+0…4, t+10…14, t+20…24, t+31…35 |
+| Different keys share rows | 10 of 40 rows have >1 worker busy |
+| `LOCK_SKIPPED` markers appear while `#1001` is held | 11 markers |
+| Overlap counter | `0 overlaps` |
+| Browser console | clean |
+
+**The detector was proven able to fail, and the plan's recipe for doing it was wrong.** Lowering
+`RECLAIM_MIN_IDLE_MS` below the processing time does *not* breach this pattern: the early claimant
+still meets a live lock and is refused, which is the pattern working. `LOCK_TTL_MS` must drop below
+the processing time as well, so the holder's lock expires mid-work and a peer legitimately acquires
+it. With both at 1000 ms against 4000 ms of work, the grid showed **`1 overlap` and four
+red-outlined rows** (`#1001` on worker-1 and worker-2 through t+5…t+8). Both constants are back at
+30000 / 10000, and a re-run of the walkthrough returned to `0 overlaps`.
+
+That run also **measured the cost of the naive rule this spec rejects**. A slot-collision detector,
+computed independently from the same DOM, flagged **5** rows; two of them (t+4, t+17) were hand-offs
+where one run ended and the next began inside the same second without ever overlapping. Interval
+judgement outlined 4 rows, all of them the one real breach — so slot collision would have been
+**40% false positives on the very run that contained a genuine violation**.
+
+The refusal marker is `⊘` (U+2298), not `⃠` (U+20E0): the latter is a *combining* enclosing mark and
+merged into the key label of the cell it was drawn in.
 
 ## Acceptance
 - Two jobs with the same `orderId` never run concurrently; they serialize.

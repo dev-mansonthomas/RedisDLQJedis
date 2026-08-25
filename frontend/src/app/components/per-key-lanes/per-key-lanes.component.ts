@@ -52,7 +52,7 @@ const LOCK_TTL_MS = 30_000;
                 }
                 @for (skip of cell.skips; track $index) {
                   <span class="skip-marker"
-                        [title]="'worker was refused ' + skip + ' — another worker held it'">⃠</span>
+                        [title]="'worker was refused ' + skip + ' — another worker held it'">⊘</span>
                 }
               </span>
             }
