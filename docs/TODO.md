@@ -179,12 +179,48 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
 
 These are about what a prospect *sees*. They are feature work, not defects, except where noted.
 
-- 🟠 **DLQ page: say what is being demonstrated, and what is left to do.** Pressing a button
-  should reveal a panel underneath that states (a) the point of this test — what we want to show a
-  customer — and (b) the remaining actions needed to complete the scenario. Today the buttons act with
-  no narrative, so a viewer who does not already know the DLQ pattern cannot tell what they just proved.
-  → Per-button copy: intent + the ordered next steps, with the current step highlighted. The same
-  treatment would help every pattern page; DLQ first because it is the landing pattern.
+- ✅ **DLQ page now says what is being demonstrated, and what is left to do** — *done 2026-08-25*.
+  `DlqNarrationComponent` + `DlqScenarioService`: a full-width band under the stream row, hidden until
+  the first click, then narrating the clicked scenario's intent, its command-level truth, its ordered
+  steps with the current one highlighted, and the end state to look for. Step counts read the live
+  `maxDeliveries` from `GET /api/dlq/config` instead of duplicating the config panel's default.
+  All five outcome scenarios were **measured, not reasoned about** (see the table in
+  [`specs/dlq.md`](specs/dlq.md)); the measurement changed the copy in one place worth keeping: the
+  click that routes a message to the DLQ answers `success:false` / "No messages available to process"
+  and paints a **red** banner, so the panel names that banner as the sweep rather than a failure.
+  Guarded by 8 service specs + 8 component specs (frontend suite 18 → 34), and the OnPush guard was
+  proven by injecting the in-place-mutation regression and watching 7 cases go red, 5 of them DOM
+  assertions. Verified in a browser through the full 4-click walkthrough: DLQ `1 of 1 messages`,
+  0 console errors. Generalising to the other 11 pages is deliberately **not** done — revisit once
+  the format has been shown to a prospect.
+- ✅ **DLQ legibility, round two** — *done 2026-08-25*, four author-requested changes:
+  1. **A dead-lettered entry now says why.** `read_claim_or_dlq` appends `reason` + `originalId`
+     (same field names as `LlmRecoverySweeper`), rendered as a line in the message header. Measured on
+     the stack: a timeout sweep writes `max deliveries (2) reached`, a FATAL nack
+     `poison (XNACK FATAL): delivery counter forced to max`.
+     **Trap found by looking at the screenshot, not by reasoning:** gating that line on `reason` alone
+     labelled a *healthy* main-stream entry as dead-lettered, because the page's own generated
+     `order.cancelled` payloads carry a business `reason` (`customer_request`, `fraud_detected`). The
+     line is now gated on `originalId`, which only the sweep writes. First `stream-viewer` spec file
+     ever, and the guard was proven by re-introducing the fault (1 case red, the right one).
+  2. **A failed row says how it failed.** New typed `DLQEvent.failureKind`
+     (`TIMEOUT` / `EXPLICIT_FAIL` / `POISON` / `RELEASED`) rather than a match on the `details` string;
+     the viewer badges `⏱ timeout` / `⚡ explicit fail`, and skips `POISON`/`RELEASED` because the
+     delivery counter already renders those. An `XACK` clears the kind.
+  3. **The status line is readable and honest.** 10 s instead of 3 s, and one shared timer instead of
+     one per call — with per-call timers an earlier timeout wiped a status posted 2 s later, which 10 s
+     would have made trivial to hit. A failing outcome is now **red**: `NO_ACK`/`NACK_FAIL`/`NACK_FATAL`
+     return `success:true`, so colouring by the HTTP flag printed "processing failed" in green.
+     `NACK_SILENT` stays green — a graceful release refunds the budget, nothing failed.
+  4. **`window.confirm` is gone**, replaced by `ConfirmDialogComponent`: in-house rather than
+     `MatDialog`, because `@angular/material` is a dependency used nowhere and the first use would drag
+     a global theme into an entirely hand-styled app. Cancel focused on open, Escape cancels, backdrop
+     deliberately not click-to-dismiss.
+
+  Frontend suite **34 → 49**, lint 0, `luacheck` 0/0, backend `mvn clean test` **139 tests, 0 skipped**.
+  Verified in a browser end to end: both reason strings on the DLQ side, `⏱ timeout` and
+  `⚡ explicit fail` badges on the source side, banner still visible at 9 s and gone by 11 s, dialog
+  opening with Cancel focused and closing on Escape, 0 console errors.
 - 🟠 **Per-Key Serialized: the guarantee does not jump out.** The whole promise is that two
   jobs for the *same* key never run concurrently while different keys do run in parallel — and the
   current view does not make that visible. → Render **one time-slot lane per worker**, so a viewer can
@@ -193,14 +229,106 @@ These are about what a prospect *sees*. They are feature work, not defects, exce
   audited (see the claim-based duplication item above) — the lanes would *show* a duplicate run, making
   the diagram double as a correctness check.
 - 🟡 **LLM Chat: token-by-token streaming reported as invisible on long replies** — the text
-  is said to arrive as one block after a wait, while the token counter climbs. **Measured on the
-  Angular 22 build (2026-08-21) and it does stream**: with `long text` as the prompt, the first
-  character appears after **309 ms**, then the assistant bubble grows 46 → 1040 characters over **23
-  distinct steps**, largest single jump 66 characters. So either the report predates that build, or
-  the trigger is a case this measurement missed. → Get the repro (exact prompt, reply length, whether
-  the internals panel was open) before changing anything; if it reproduces, the suspects are
-  `MockLlmClient`'s `tokenDelayMs` and the 1500 ms `refresh()` poll racing the `ASSISTANT_MESSAGE`
-  event, which does replace the streamed text with the complete turn in one assignment.
+  is said to arrive as one block after a wait, while the token counter climbs.
+  **Not reproducible — closed 2026-08-25 after a four-case sweep**, and the earlier 2026-08-21
+  measurement stands. The sweep drove the real page with a `MutationObserver` in-page (so it records
+  what the browser repaints, not what a poll samples) across the cases the first measurement missed:
+
+  | Case | Prompt | Internals | 1st char | Length | Distinct paints | Largest jump |
+  |------|--------|-----------|----------|--------|-----------------|--------------|
+  | A | `hello` | closed | 578 ms | 40 | 6 | 10 |
+  | B | `hello` | open | 96 ms | 40 | 6 | 10 |
+  | C | `long text please` | closed | 112 ms | 1040 | 165 | 16 |
+  | D | `long text please` | open | 100 ms | 1040 | 165 | 16 |
+
+  Every case streams (`singleBlock: false`), 0 console errors. The 165 paints vs the earlier 23 are
+  finer sampling, not a contradiction. **The likely origin of the report:** `MockLlmClient` routes to
+  `LONG_REPLY` only when the prompt contains `long text` (line 73); any other prompt yields ~40
+  characters painted in 6 steps over ~220 ms — real streaming that no human eye can resolve. It
+  *appears*, it does not *type*. Neither suspect (`tokenDelayMs`, the 1500 ms `refresh()` poll racing
+  `ASSISTANT_MESSAGE`) was implicated.
+  → Remaining, and **not** acted on because it was outside the validated scope: `long text` is an
+  undiscoverable magic word in the input field. The `longTextDemo()` button exists, but nothing tells
+  an operator typing a prompt that a short reply is the reason streaming looks instant.
+
+## Found while naming the DLQ scenario (2026-08-25)
+
+- ✅ **A dead-lettered entry now names the button that put it there.** `failedVia`
+  (`NO_ACK,NACK_FAIL`) travels to the sweep as an **optional 6th ARGV** — never a new KEY, because five
+  other services and the blog post's six language samples call `read_claim_or_dlq` with exactly 2 keys
+  and 5 args and must keep working untouched. The backend owns the history (only it knows the button;
+  the Lua sees a counter), the frontend owns the labels (`Process & Fail (timeout) ×2 — max deliveries
+  (2) reached`), consecutive repeats collapse to `×N` and a mixed run is spelled out with `→`.
+- 🔴→✅ **`XNACK SILENT` does not reset the delivery counter to 0 — it refunds its OWN delivery.**
+  Measured with `XPENDING`, `maxDeliveries=2`: five consecutive releases keep the counter at 0 and never
+  reach the DLQ, but a `NO_ACK` **followed by** a `SILENT` leaves it at **1**, and an alternating
+  `NO_ACK`/`SILENT` loop is dead-lettered on the second pair. Three things were wrong because of this
+  belief, all fixed:
+  1. `DLQMessagingService` hardcoded `counterAfter = 0` for `NACK_SILENT`, so the UI was told the retry
+     budget was empty while Redis held a charged attempt. It now reads `XPENDING`.
+  2. The narration panel claimed the message "never reaches the DLQ, however often you repeat this".
+     It now names its precondition (a *pure* release loop) and points the operator at the mixed case.
+  3. Clearing the failure history on `SILENT` made a swept entry report **one** failure for **two**
+     clicks. Only actions that charge the budget are recorded, so `failedVia` mirrors the counter.
+
+  **Why the belief survived:** `DLQXnackIntegrationTest#nackSilent_refundsCounter` only ever released a
+  message on its *first* delivery, where the counter genuinely lands on 0 — a true assertion that does
+  not generalise. New test `nackSilent_afterAChargedAttempt_refundsOnlyItsOwnDelivery` closes the gap,
+  and `sweptEntry_recordsTheActionsThatChargedTheBudget` pins the ordered mixed history.
+  Backend **139 → 141 tests**, frontend **49 → 52**, all green, 0 skipped; verified in a browser across
+  the timeout / mixed / poison sweeps with 0 console errors.
+- ✅ **Right column tightened, left column shows progress** — *done 2026-08-25*, three author-requested
+  changes:
+  1. **The DLQ origin is a short header badge**, `⚠ Timeout ×2` / `⚠ Poison` /
+     `⚠ Timeout → Explicit fail`, with the mechanism and the original id on hover. Terse on purpose —
+     inside a DLQ, "fail" is a given.
+  2. **Cards resized rather than trimmed** — *revised on author feedback the same day*. The first
+     attempt hid the sweep's three fields to free the lines; the requirement was the opposite: keep
+     every row and make the card bigger. The viewer shows what the stream holds, so the header badge
+     now summarises without replacing. DLQ viewer `[messageHeight]="205"` (source column keeps 125),
+     six rows rendered, `scrollHeight - clientHeight = 0`.
+     **Column height 861, measured rather than estimated.** Card pitch is **127px** (125 + a 2px gap),
+     the container adds 16px of padding, header plus footer cost **85px**: `6 × 127 − 2 + 16 + 85`.
+     Two guesses (755, 835) each left the sixth card cut off; only measuring the gap and the padding
+     closed it. Now `clientHeight == scrollHeight == 776`, six of six cards fully visible.
+  3. **Any attempted message stays dimmed** (`handled`, opacity `0.38`) instead of only flashing —
+     failure as well as success, because a failed attempt is still an attempt and what a viewer needs is
+     how far down the stream the demo has got. A success additionally carries the `acked` badge;
+     `MESSAGE_PROCESSED` has exactly one emitter (this page's ACK path) and the entry is XACKed straight
+     after, so the state is accurate.
+  4. **Generate Messages now produces six entries**, not four: with `maxDeliveries` at 2 a single
+     scenario burns three clicks, so four ran out mid-demonstration. The narration copy counts them
+     too, so the panel and the button cannot drift apart.
+
+  **Found while measuring, not requested:** the freshly processed card showed `2×` *and* `acked` — a
+  delivery count on an acknowledged entry, two statements that cannot both be true. The success event is
+  broadcast *before* the XACK lands, so a pending poll in flight reads the stale row.
+  `refreshPendingInfo` now leaves acked entries alone; guarded by a spec that needed its own
+  group-aware setup (without a consumer group the poll returns early and the guard was untestable), and
+  proven by removing the guard and watching the failure print `2×`.
+  Frontend **52 → 55 tests**, lint 0, 0 console errors in the browser walkthrough.
+
+- ✅ **"2 more messages" was neither clickable nor accurate** — *done 2026-08-25*, reported by the
+  author as "the 2 hidden messages can't be processed". **They could**: with 12 messages and a window of
+  10, 12 consecutive ACKs consumed all 12 distinct ids and left the PEL at 0. The real defect is an
+  ordering mismatch — the viewer shows the **newest** `pageSize` entries (`XREVRANGE ... COUNT`) while a
+  consumer group delivers the **oldest undelivered** first, so beyond the window the next message to be
+  processed is off-screen *by construction* and a click changes nothing visible.
+  Three findings, all fixed:
+  1. `.more-messages` **has never had a click handler.** There is no broken pagination; there is no
+     pagination. It is now written as information, with the ordering spelled out in the line and in its
+     tooltip, instead of looking like a control.
+  2. The count was `totalMessages - pageSize`, right only while the list happens to be full. A trim
+     (`MESSAGE_DELETED`) made it understate — 4 held, 2 shown, and it claimed 1 hidden. Now
+     `totalMessages - displayedMessages.length`, pinned by a spec that drives exactly that divergence.
+  3. `pageSize` 10 → **20** on both DLQ columns, as requested: Generate produces six, so three clicks
+     stay inside the window. Verified — two clicks give `12 of 12 messages` with no indicator, and all
+     12 rows end up visibly marked after twelve successes.
+
+- 🟡 **`src/main/resources/static/` holds a committed frontend bundle** (noticed while grepping: it
+  matched `read_claim_or_dlq` in minified JS). It is stale relative to `frontend/`, and nothing in the
+  documented run paths serves it — the Docker frontend is its own nginx image. → Confirm it is dead
+  weight and delete it, or document what serves it.
 
 ## Code review & security
 

@@ -71,6 +71,58 @@ describe('DlqActionsComponent — status banner and button lockout', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.status-message.error')).not.toBeNull();
   });
 
+  it('paints a failing outcome in red even though the REST call succeeded', async () => {
+    // The regression this pins: `Process & Fail` returns success:true — the call worked, the message
+    // did not — and colouring by that flag alone printed "processing failed" in a green box.
+    fixture.componentInstance.process('NO_ACK');
+    http.expectOne(`${API}/process`).flush({
+      success: true, message: '✗ Message 1-0 processing failed (will retry, deliveryCount: 1)'
+    });
+
+    await settle();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.status-message.error')).not.toBeNull();
+  });
+
+  it('leaves a graceful release green — nothing failed, the budget was refunded', async () => {
+    fixture.componentInstance.process('NACK_SILENT');
+    http.expectOne(`${API}/process`).flush({ success: true, message: '↩ Message 1-0 released (SILENT)' });
+
+    await settle();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.status-message.error')).toBeNull();
+  });
+
+  it('replaces the previous status rather than stacking', async () => {
+    // Duration is deliberately NOT asserted here: `vi.useFakeTimers()` freezes Angular's scheduler,
+    // so the DOM would go stale and every case would fail for the wrong reason (documented trap).
+    // The 10s window was measured in a browser instead.
+    fixture.componentInstance.process('ACK');
+    http.expectOne(`${API}/process`).flush({ success: true, message: 'first' });
+    expect(await text()).toContain('first');
+
+    fixture.componentInstance.process('NO_ACK');
+    http.expectOne(`${API}/process`).flush({ success: true, message: 'second' });
+
+    const rendered = await text();
+    expect(rendered).toContain('second');
+    expect(rendered).not.toContain('first');
+  });
+
+  it('asks before clearing, and deletes nothing until the dialog is confirmed', async () => {
+    fixture.componentInstance.clearAllStreams();
+    await settle();
+
+    // The whole point of dropping the native confirm(): the request must not have been sent yet.
+    http.expectNone(`${API}/stream/test-stream`);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="dialog"]')).not.toBeNull();
+
+    fixture.componentInstance.confirmClear();
+    await settle();
+
+    http.expectOne(`${API}/stream/test-stream`).flush(null);
+    http.expectOne(`${API}/stream/test-stream:dlq`).flush(null);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('re-enables the buttons once the response lands', async () => {
     const buttons = () => Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'));

@@ -3,13 +3,14 @@ import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
 import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
+import { DlqNarrationComponent } from '../dlq-narration/dlq-narration.component';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 @Component({
   selector: 'app-dlq',
   standalone: true,
-  imports: [StreamViewerComponent, DlqConfigComponent, DlqActionsComponent, MermaidDiagramComponent],
+  imports: [StreamViewerComponent, DlqConfigComponent, DlqActionsComponent, DlqNarrationComponent, MermaidDiagramComponent],
   template: `
     <div class="dlq-container">
       <div class="page-header">
@@ -26,15 +27,22 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
         </div>
 
         <!-- Streams Section -->
+        <!-- pageSize 20, not 10: the window shows the NEWEST entries while the consumer group hands
+             out the OLDEST first, so once the stream exceeds the window the next message to be
+             processed is off-screen and a click looks like a no-op. Generate produces six, so 20
+             covers three clicks. There is no pagination to fall back on (there never was).
+             Column height 861, measured rather than estimated: 6 cells at a 127px pitch (125 + 2px
+             gap), less the trailing gap, plus 16px of container padding = 776px of content, plus 85px
+             of viewer header/footer. One click on Generate leaves all six messages on screen. -->
         <div class="streams-section">
           <div class="stream-column">
             <app-stream-viewer
               stream="test-stream"
               group="test-group"
               consumer="consumer-1"
-              [pageSize]="10"
+              [pageSize]="20"
               [showNextIndicator]="true"
-              [containerHeight]="625">
+              [containerHeight]="861">
             </app-stream-viewer>
           </div>
 
@@ -43,15 +51,22 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
           </div>
 
           <div class="stream-column">
+            <!-- Taller cards than the source column: a swept entry carries the original payload PLUS
+                 the sweep's reason / originalId / failedVia, and every row is meant to be readable. -->
             <app-stream-viewer
               stream="test-stream:dlq"
               group="dlq-group"
               consumer="dlq-consumer"
-              [pageSize]="10"
-              [containerHeight]="550">
+              [pageSize]="20"
+              [messageHeight]="205"
+              [containerHeight]="861">
             </app-stream-viewer>
           </div>
         </div>
+
+        <!-- Narration: what the button just clicked demonstrates, and what is left to do.
+             Full width rather than inside the actions column, which is too narrow for a step list. -->
+        <app-dlq-narration></app-dlq-narration>
 
         <!-- Architecture Diagram -->
         <app-mermaid-diagram

@@ -1,7 +1,9 @@
-import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnDestroy, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 
 import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
+import { DlqAction, DlqScenarioService } from '../../services/dlq-scenario.service';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 
 /**
  * Component for processing DLQ messages with success or failure simulation.
@@ -14,10 +16,19 @@ interface ProcessResponse {
   message?: string;
 }
 
+/** How long a status line stays on screen. Long enough to actually read it. */
+const STATUS_VISIBLE_MS = 10_000;
+
+/**
+ * Outcomes that mean the *message* failed, even though the REST call succeeded.
+ * `NACK_SILENT` is absent on purpose: a graceful release refunds the retry budget, so nothing failed.
+ */
+const FAILING_OUTCOMES = new Set<string>(['NO_ACK', 'NACK_FAIL', 'NACK_FATAL']);
+
 @Component({
   selector: 'app-dlq-actions',
   standalone: true,
-  imports: [],
+  imports: [ConfirmDialogComponent],
   template: `
     <div class="dlq-actions">
       <div class="actions-header">
@@ -96,6 +107,17 @@ interface ProcessResponse {
         }
       </div>
     </div>
+    
+    @if (pendingClear()) {
+      <app-confirm-dialog
+        title="Clear all streams?"
+        message="This deletes test-stream and test-stream:dlq. It cannot be undone."
+        detail="The consumer group is recreated on the next action, so the page keeps working."
+        confirmLabel="Clear all"
+        (confirmed)="confirmClear()"
+        (cancelled)="pendingClear.set(false)">
+      </app-confirm-dialog>
+    }
     `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
@@ -255,22 +277,30 @@ interface ProcessResponse {
     }
   `]
 })
-export class DlqActionsComponent {
+export class DlqActionsComponent implements OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
+  private scenarios = inject(DlqScenarioService);
   private apiUrl = 'http://localhost:8080/api/dlq';
 
   isProcessing = signal(false);
   statusMessage = signal('');
   isError = signal(false);
 
-  generateMessages(): void {
-    this.isProcessing.set(true);
-    this.statusMessage.set('Generating messages...');
-    this.isError.set(false);
+  /** Single timer shared by every status line — see {@link setStatus}. */
+  private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Generate 4 random messages
-    const messages = this.createRandomMessages(4);
+  /** Whether the destructive-clear confirmation is on screen. */
+  pendingClear = signal(false);
+
+  generateMessages(): void {
+    this.scenarios.record('GENERATE');
+    this.isProcessing.set(true);
+    this.setStatus('Generating messages...', false);
+
+    // Six, not four: with maxDeliveries at 2 a single scenario burns three clicks, so four messages
+    // ran out mid-demonstration.
+    const messages = this.createRandomMessages(6);
     let completed = 0;
     let errors = 0;
 
@@ -286,22 +316,17 @@ export class DlqActionsComponent {
             if (completed + errors === messages.length) {
               this.isProcessing.set(false);
               if (errors === 0) {
-                this.statusMessage.set(`✓ Generated ${completed} messages successfully`);
-                this.isError.set(false);
+                this.setStatus(`✓ Generated ${completed} messages successfully`, false);
               } else {
-                this.statusMessage.set(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`);
-                this.isError.set(true);
+                this.setStatus(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`, true);
               }
-              setTimeout(() => this.statusMessage.set(''), 3000);
             }
           },
           error: () => {
             errors++;
             if (completed + errors === messages.length) {
               this.isProcessing.set(false);
-              this.statusMessage.set(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`);
-              this.isError.set(true);
-              setTimeout(() => this.statusMessage.set(''), 3000);
+              this.setStatus(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`, true);
             }
           }
         });
@@ -338,14 +363,16 @@ export class DlqActionsComponent {
     return messages;
   }
 
+  /** Asks first. The deletion itself lives in {@link confirmClear}. */
   clearAllStreams(): void {
-    if (!confirm('Are you sure you want to delete all streams (test-stream and test-stream:dlq)? This action cannot be undone.')) {
-      return;
-    }
+    this.pendingClear.set(true);
+  }
 
+  confirmClear(): void {
+    this.pendingClear.set(false);
+    this.scenarios.record('CLEAR');
     this.isProcessing.set(true);
-    this.statusMessage.set('Clearing streams...');
-    this.isError.set(false);
+    this.setStatus('Clearing streams...', false);
 
     // Delete both streams
     const streams = ['test-stream', 'test-stream:dlq'];
@@ -359,17 +386,14 @@ export class DlqActionsComponent {
           if (completed + errors === streams.length) {
             this.isProcessing.set(false);
             if (errors === 0) {
-              this.statusMessage.set(`✓ Cleared ${completed} streams successfully`);
-              this.isError.set(false);
+              this.setStatus(`✓ Cleared ${completed} streams successfully`, false);
             } else {
-              this.statusMessage.set(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`);
-              this.isError.set(true);
+              this.setStatus(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`, true);
             }
 
             // Trigger refresh of all stream viewers
             this.refreshService.triggerRefresh();
 
-            setTimeout(() => this.statusMessage.set(''), 3000);
           }
         },
         error: () => {
@@ -377,18 +401,16 @@ export class DlqActionsComponent {
           if (completed + errors === streams.length) {
             this.isProcessing.set(false);
             if (completed > 0) {
-              this.statusMessage.set(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`);
+              this.setStatus(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`, true);
             } else {
-              this.statusMessage.set('Error: Failed to clear streams');
+              this.setStatus('Error: Failed to clear streams', true);
             }
-            this.isError.set(true);
 
             // Trigger refresh even on partial success
             if (completed > 0) {
               this.refreshService.triggerRefresh();
             }
 
-            setTimeout(() => this.statusMessage.set(''), 3000);
           }
         }
       });
@@ -396,30 +418,50 @@ export class DlqActionsComponent {
   }
 
   /** outcome: ACK | NO_ACK | NACK_FAIL | NACK_FATAL | NACK_SILENT (see ProcessOutcome, backend). */
-  process(outcome: string): void {
+  process(outcome: Exclude<DlqAction, 'GENERATE' | 'CLEAR'>): void {
+    this.scenarios.record(outcome);
     this.isProcessing.set(true);
-    this.statusMessage.set('Processing...');
-    this.isError.set(false);
+    this.setStatus('Processing...', false);
 
     this.http.post<ProcessResponse>(`${this.apiUrl}/process`, { outcome }).subscribe({
       next: (response) => {
-        if (response.success) {
-          this.statusMessage.set(response.message || 'Message processed successfully');
-          this.isError.set(false);
-        } else {
-          this.statusMessage.set(response.message || 'No messages to process');
-          this.isError.set(true);
-        }
+        // A failing outcome returns success:true — the *call* worked, the *message* did not. Colouring
+        // by the HTTP flag alone is what painted "processing failed" in green.
+        const failed = !response.success || FAILING_OUTCOMES.has(outcome);
+        this.setStatus(
+          response.message || (response.success ? 'Message processed successfully' : 'No messages to process'),
+          failed);
         this.isProcessing.set(false);
-        setTimeout(() => this.statusMessage.set(''), 3000);
       },
       error: (error) => {
-        this.statusMessage.set('Error: ' + (error.error?.message || 'Failed to process message'));
-        this.isError.set(true);
+        this.setStatus('Error: ' + (error.error?.message || 'Failed to process message'), true);
         this.isProcessing.set(false);
-        setTimeout(() => this.statusMessage.set(''), 3000);
       }
     });
+  }
+
+  /**
+   * Shows a status line for {@link STATUS_VISIBLE_MS}, or until the next one replaces it.
+   *
+   * The single shared timer is the point: with one timer per call, a status posted 2 s after another
+   * was wiped by the *earlier* call's timeout. Ten seconds made that race trivial to hit.
+   */
+  private setStatus(message: string, isError: boolean): void {
+    if (this.statusTimer !== null) {
+      clearTimeout(this.statusTimer);
+    }
+    this.statusMessage.set(message);
+    this.isError.set(isError);
+    this.statusTimer = setTimeout(() => {
+      this.statusMessage.set('');
+      this.statusTimer = null;
+    }, STATUS_VISIBLE_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this.statusTimer !== null) {
+      clearTimeout(this.statusTimer);
+    }
   }
 }
 
