@@ -132,9 +132,10 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   entries while the group delivers the **oldest** first, so once a stream exceeds the window the next
   message to be processed is off-screen and a Process click looks like a no-op. Nothing is unreachable
   — 12 ACKs did consume all 12 of 12 messages — but the feedback is invisible. `stream-viewer` has **no
-  pagination** (the `.more-messages` line never had a click handler); the DLQ page and Per-Key's
-  incoming viewer therefore use `pageSize=20`, and that line now states the ordering instead of
-  pretending to be a control.
+  pagination** (the `.more-messages` line never had a click handler); the DLQ page and **all four**
+  Per-Key viewers therefore use `pageSize=20`, and that line now states the ordering instead of
+  pretending to be a control. A done stream only ever grows, so a 5-row window there truncated as
+  soon as a worker had handled six jobs, hiding the *earliest* — where a key's serialization starts.
 - **`/dlq/messages` returns `streamLength` (the real `XLEN`) beside `count` (the size of the page), and
   the viewer counts against the former.** `count` is capped by the requested page size, so a window
   holding 5 of 11 entries reported 5 and the footer read **"5 of 5 messages"** — the truncation was

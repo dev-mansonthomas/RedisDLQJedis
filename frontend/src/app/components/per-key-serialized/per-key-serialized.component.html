@@ -46,15 +46,18 @@
           <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="20" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
         </div>
       </div>
+      <!-- pageSize 20 here too: a done stream only grows, so 5 rows truncated as soon as a worker
+           had handled six jobs — and the hidden ones were the EARLIEST, which is where the
+           serialization of a key starts. The container scrolls. -->
       <div class="streams-row workers">
         <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker1.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+          <app-stream-viewer stream="jobs.perkey.v1.worker1.done" [pageSize]="20" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
         </div>
         <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker2.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+          <app-stream-viewer stream="jobs.perkey.v1.worker2.done" [pageSize]="20" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
         </div>
         <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker3.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+          <app-stream-viewer stream="jobs.perkey.v1.worker3.done" [pageSize]="20" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
         </div>
       </div>
     </div>
