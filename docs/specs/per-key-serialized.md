@@ -75,7 +75,9 @@ Emission points, all in `PerKeySerializedService.processEntry`:
 Slots are **1000 ms**, anchored on the first event seen (`slot(t) = floor((t - anchorMs) / 1000)`).
 Rows run from `max(0, currentSlot - 119)` to `currentSlot` (see the cap below) — not from slot 0;
 columns are the three workers; a cell is filled when a run
-covers that slot on that worker, tinted by key. A `LOCK_SKIPPED` draws a hatched marker in the cell
+covers that slot on that worker, tinted by key. **Each cell names its action** next to the key
+(`#1001 recalculateTotal`): the colour says *which* key is held, and without the action a row saying
+"#1001" four times tells a viewer nothing about the work being serialized. A `LOCK_SKIPPED` draws a hatched marker in the cell
 of the worker that was refused — that refusal is the mechanism, so it is worth the visual noise.
 
 ### Violation rule
@@ -94,6 +96,20 @@ spanning four slots outlines four rows but counts once).
 - The component owns a **1 s tick** so an in-progress run grows while it runs. That makes it one of
   the components for which `fixture.whenStable()` never resolves (documented trap) — specs use
   `settle()`, never fake timers.
+- **The tick only runs while a job is in flight** (added 2026-08-26): a run with no `FINISHED` whose
+  lock has not expired. Once the last job lands the clock freezes at that event, so a page left open
+  after the demo drains stops growing a row per second. The TTL bound matters as much as the
+  `FINISHED` — a worker killed mid-job never reports finishing, and that one run would otherwise keep
+  the clock alive for the whole session. The state is rendered (`data-clock`, `▶ live` / `⏸ stopped`)
+  so it is assertable and visible. **Measured:** drained at 46 rows, then +30 s idle → **grew by 0**.
+  Consequence accepted: the clock also pauses in the gaps *between* same-key jobs, while the backlog
+  waits for `RECLAIM_MIN_IDLE_MS`. Nothing is lost — the next event carries its own `atMs`, so those
+  idle seconds are drawn when it arrives, retroactively rather than live. Ticking through those gaps
+  would need a backlog signal (`XINFO GROUPS` lag + pending) that no event currently carries.
+- **Assert the clock *rule*, never "rows grew after a wait".** The tick's phase is fixed at component
+  init, not at the first event, so waiting one slot can advance the clock by **less than** one slot
+  (measured: 948 ms after a 1300 ms wait) and the assertion is racy by construction. Freezing is the
+  exact half: nothing may advance, ever.
 - Runs and skips are capped at the most recent **120 slots**; older entries are dropped. A demo page
   left open for an hour must not grow without bound.
 - **Live only.** The grid starts empty on reload, like the streams it watches (they are cleared on

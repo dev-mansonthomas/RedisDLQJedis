@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **86 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **91 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -62,6 +62,12 @@ observability over hardening.
   3. **`vi.useFakeTimers()` freezes Angular's scheduler**: signals update, the DOM stays stale, every
      case fails for the wrong reason.
   4. **jsdom has no WebSocket** — always inject `WebSocketServiceStub`, never let a spec build SockJS.
+  5. **Never assert "the view grew after waiting N ms" for a component with a recurring tick.** Wall
+     time does pass in these specs (`Date.now()` advances normally — measured), but the tick's phase is
+     fixed at component *init*, not at the event under test, so waiting one interval can advance the
+     clock by less than one interval (measured: 948 ms after a 1300 ms wait). Assert the rendered
+     *rule* (`data-clock` on `per-key-lanes`) instead; a *frozen* clock is the only exact direction,
+     because nothing may advance at all.
 - **CI:** `.github/workflows/ci.yml` — three jobs on every PR and every push to `main`: **backend**
   (Java 21, `mvn clean test`, then a gate that **fails if any test was skipped**), **frontend**
   (`npm ci` → lint → `npm test` → build → `npm audit --audit-level=moderate`), **lua** (`luacheck`,
@@ -109,7 +115,7 @@ observability over hardening.
 | `/pubsub-topic-routing` | Topic Routing (Pub/Sub) | `PSUBSCRIBE` patterns | `order.<region>.<event>` |
 | `/content-routing` | Content-Based Routing | Streams + amount thresholds | `payments.incoming.v1` → tiers |
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
-| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 4s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision | `jobs.perkey.v1`, `running:order:{id}` |
+| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 4s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision; each cell names its **action** beside the key, and the **clock only ticks while a job is in flight** (`data-clock` / `▶ live` vs `⏸ stopped`) so an idle page stops growing rows | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
 | `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010); **conversation persists across page reload** (frontend keeps the cid in `localStorage` → `chat:{cid}` is the source of truth) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
 

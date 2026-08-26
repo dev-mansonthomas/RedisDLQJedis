@@ -17,9 +17,10 @@ const LOCK_TTL_MS = 30_000;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="lanes">
+    <section class="lanes" [attr.data-clock]="inFlight() ? 'running' : 'stopped'">
       <header class="lanes-header">
         <h3 class="lanes-title">⏱ Time slots — one row per second, one column per worker</h3>
+        <span class="clock-state" [class.live]="inFlight()">{{ inFlight() ? '▶ live' : '⏸ stopped' }}</span>
         <span class="overlap-count" [class.bad]="grid().overlapCount > 0">{{ grid().overlapCount }} {{ grid().overlapCount === 1 ? 'overlap' : 'overlaps' }}</span>
       </header>
 
@@ -46,6 +47,9 @@ const LOCK_TTL_MS = 30_000;
                     [title]="cell.key ? cell.key + ' — ' + cell.action : ''">
                 @if (cell.key) {
                   <span class="cell-key">{{ cell.key }}</span>
+                }
+                @if (cell.action) {
+                  <span class="cell-action">{{ cell.action }}</span>
                 }
                 @if (cell.endUnknown) {
                   <span class="unknown" title="No FINISHED seen; the lock TTL has expired">?</span>
@@ -95,6 +99,18 @@ const LOCK_TTL_MS = 30_000;
     .lane-cell.running { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.6); }
     .lane-cell.violating { outline: 2px solid #dc2626; }
     .cell-key { text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35); }
+    /* The action is the *what*, the colour is the *which key*: a row saying only "#1001" four times
+       tells a viewer nothing about the work being serialized. Lighter than the key so the eye still
+       lands on the colour block first. */
+    .cell-action {
+      font-weight: 500; opacity: 0.85; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    }
+    .clock-state {
+      padding: 2px 8px; border-radius: 10px; background: #e2e8f0; color: #475569;
+      font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .clock-state.live { background: #dbeafe; color: #1d4ed8; }
     .skip-marker { color: #b91c1c; background: #fee2e2; border-radius: 2px; padding: 0 3px; }
     .unknown { color: #fef3c7; }
   `]
@@ -122,6 +138,26 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
   private readonly clockOffsetMs = signal(0);
   private readonly nowMs = signal(0);
 
+  /**
+   * Whether the grid's clock should still be advancing.
+   *
+   * True only while a job is genuinely in flight: a run with no `FINISHED` whose lock has not yet
+   * expired. Once the last job lands the clock freezes at that event, so a page left open after the
+   * demo drains stops growing a row per second and the interesting slots stay on screen.
+   *
+   * The TTL bound matters as much as the `FINISHED`: a worker killed mid-job never reports finishing,
+   * and without it that one run would keep the clock alive for the rest of the session.
+   *
+   * Consequence worth knowing: the clock also pauses in the gaps *between* same-key jobs, while the
+   * backlog waits for `RECLAIM_MIN_IDLE_MS`. Nothing is lost — the next event carries its own `atMs`,
+   * so those idle seconds are drawn when it arrives. They appear retroactively rather than live.
+   */
+  readonly inFlight = computed(() => {
+    const now = this.nowMs();
+    return this.runs().some(r =>
+      r.endMs === null && r.startMs !== null && now < (r.startMs as number) + LOCK_TTL_MS);
+  });
+
   readonly grid = computed(() => {
     const anchor = this.anchorMs();
     if (anchor === null) return { rows: [], overlapCount: 0 };
@@ -134,7 +170,10 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
       this.absorb(event as PerKeySlotEvent);
     });
     this.tick = setInterval(() => {
-      if (this.anchorMs() !== null) this.nowMs.set(Date.now() + this.clockOffsetMs());
+      // Only while something is actually running: see `inFlight`.
+      if (this.anchorMs() !== null && this.inFlight()) {
+        this.nowMs.set(Date.now() + this.clockOffsetMs());
+      }
     }, SLOT_MS);
   }
 

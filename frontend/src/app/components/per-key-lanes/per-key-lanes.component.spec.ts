@@ -83,6 +83,65 @@ describe('PerKeyLanesComponent', () => {
     expect(host().querySelector('.lane-cell[data-worker="3"] .skip-marker')).not.toBeNull();
   });
 
+  it('labels each cell with its action, not only its key', async () => {
+    socket.emit(slot('STARTED', {
+      workerId: 2, orderId: '#1001', messageId: 'm1', atMs: 1_000_000, action: 'recalculateTotal'
+    }));
+    await settle();
+
+    const cell = host().querySelector('.lane-row .lane-cell[data-worker="2"]')!;
+    expect(cell.textContent).toContain('#1001');
+    expect(cell.textContent).toContain('recalculateTotal');
+  });
+
+  // The clock rule is asserted through the rendered state, never through "rows grew after a wait":
+  // the 1s tick's phase is fixed at component init, not at the first event, so waiting one slot can
+  // advance the clock by less than one slot (measured: 948ms after a 1300ms wait) and the assertion
+  // is racy by construction. Freezing, by contrast, is exact — nothing may advance, ever.
+  it('keeps the clock running while a job is in flight', async () => {
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    await settle();
+
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('running');
+  });
+
+  it('stops the clock once nothing is in flight', async () => {
+    // Otherwise a page left open after the demo drains grows a row per second for ever, and the
+    // interesting slots scroll away under a wall of empty ones.
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    socket.emit(slot('FINISHED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_500 }));
+    await settle();
+    const before = host().querySelectorAll('.lane-row').length;
+
+    await settle(2_300);   // two ticks of the component's 1s clock; a frozen grid must ignore both
+
+    expect(host().querySelectorAll('.lane-row').length).toBe(before);
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('stopped');
+  });
+
+  it('stops the clock on a run left open past the lock TTL', async () => {
+    // No FINISHED and the lock has expired: the job cannot still be running, so the grid must not
+    // keep drawing seconds for it either.
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    socket.emit(slot('LOCK_SKIPPED', { workerId: 2, orderId: '#1001', messageId: 'm2', atMs: 1_031_000 }));
+    await settle();
+
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('stopped');
+  });
+
+  it('restarts the clock when the next job arrives', async () => {
+    socket.emit(slot('FINISHED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    await settle();
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('stopped');
+
+    socket.emit(slot('STARTED', { workerId: 2, orderId: '#2002', messageId: 'm2', atMs: 1_006_000 }));
+    await settle();
+
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('running');
+    // The idle seconds are not erased — time did pass, and the gap is part of the story.
+    expect(host().querySelectorAll('.lane-row').length).toBe(7);
+  });
+
   it('tolerates a FINISHED whose STARTED was never seen', async () => {
     // The page can be opened mid-run. Dropping the event would lose a completed job entirely.
     socket.emit(slot('FINISHED', { workerId: 1, orderId: '#2002', messageId: 'm9', atMs: 1_000_000 }));
