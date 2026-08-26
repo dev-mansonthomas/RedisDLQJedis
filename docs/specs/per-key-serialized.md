@@ -152,11 +152,28 @@ watched for 40 s):
 
 Those slot ranges are five rows long because the walkthrough ran against `PROCESSING_SLEEP_MS = 4000`.
 **Cut to 2700 ms on 2026-08-26** (four rows per job read as sluggish): bars are now **3–4 rows,
-mean 3.5** over 11 jobs. **The demo's wall clock barely moved — 46 rows to 45.** It is dominated by
-`RECLAIM_MIN_IDLE_MS` (10 s), not by the work time: a same-key job that finds the lock held waits out
-the reclaim window before anyone retries it, so the gaps between bars, not the bars, set the pace.
-Shortening those gaps means lowering the reclaim threshold, which the minIdle rule floors at
-`2 × 2700 = 5400 ms`.
+mean 3.6** over 11 jobs.
+
+Cutting the work time alone moved the demo's wall clock almost not at all — 46 rows to 45 — because
+the pace was set by the **gaps**, not the bars. `RECLAIM_MIN_IDLE_MS` was 10 s, and a job whose key was
+busy had its idle timer reset by the very claim that refused it, so the next attempt came a whole
+reclaim window later. Measured **10324 ms** between consecutive same-key completions, with all three
+workers idle through most of it.
+
+**`RECLAIM_MIN_IDLE_MS` is now 1000 ms — deliberately shorter than the work time**, inverting the rule
+the other claim-based patterns must follow. It is safe here and *only* here because **minIdle is not
+what prevents a second run in this pattern; the `SET NX` lock is.** An early claim on a held key fails
+the lock and is dropped, costing one refused round trip. Result: same-key latency ~4.2 s
+(work + minIdle + poll), the default batch **46 rows → 16**, and the grid's `⊘` markers multiply —
+that is the deferral mechanism becoming visible, not noise.
+
+**How that safety claim was proved, and how the obvious test failed to prove it.**
+`oneSaturatedKeyIsNeverProcessedTwiceEvenThoughMinIdleIsBelowTheWorkTime` (6 jobs, 3 workers) passes
+**even with `.nx()` removed from the lock** — saturation keeps every worker busy in lockstep, so no idle
+worker is ever available to steal an in-flight entry, and the risk is never exercised.
+`anInFlightJobIsNotReRunByAnIdleWorkerWhoseClaimBeatsTheWorkTime` submits **one** job precisely so two
+workers sit idle while it runs; with the lock neutered it fails with **three completions for one
+submitted job**. Keep both, but know which one is the guard.
 
 **The detector was proven able to fail, and the plan's recipe for doing it was wrong.** Lowering
 `RECLAIM_MIN_IDLE_MS` below the processing time does *not* breach this pattern: the early claimant

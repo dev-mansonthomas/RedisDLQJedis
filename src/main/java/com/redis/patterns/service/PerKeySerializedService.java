@@ -47,17 +47,33 @@ public class PerKeySerializedService implements CommandLineRunner {
     /**
      * Simulated work per job. Cut from 4000ms by about a third on 2026-08-26: four rows of the
      * time-slot grid per job read as sluggish.
-     *
-     * <p>Coupled to {@code RECLAIM_MIN_IDLE_MS} by the project-wide rule that minIdle must outlast
-     * the work time, or a free worker claims a job its peer is still processing and the job runs
-     * twice, silently. The margin went from 2.5x to 3.7x here, so this direction is always safe —
-     * raising it back above 5000ms would not be.
      */
     private static final long PROCESSING_SLEEP_MS = 2700;
     private static final long LOCK_TTL_MS = 30000; // 30 seconds lock TTL
     // Reclaim idle must exceed processing time, otherwise an in-flight message
     // gets reclaimed repeatedly while a worker is still processing it.
-    private static final long RECLAIM_MIN_IDLE_MS = 10000;
+    /**
+     * How long a pending job must sit before another worker retries it.
+     *
+     * <p><b>Deliberately shorter than {@link #PROCESSING_SLEEP_MS}, which inverts the rule the other
+     * claim-based patterns follow</b> ({@code minIdle >= 2 x work}, the rule whose violation
+     * duplicated 120 jobs in the Work Queue). It is safe <i>here</i>, and only here, because in this
+     * pattern minIdle is not what prevents a job running twice — the per-key lock is. A worker that
+     * claims a message whose key is still held fails the {@code SET NX} and drops it back untouched,
+     * so an early claim costs one refused round trip, not a duplicate run. The lock cannot lapse
+     * mid-job either: its TTL is {@link #LOCK_TTL_MS} (30s) against 2.7s of work.
+     *
+     * <p>It was 10000ms, and that was the single worst thing about the demo. A job whose key was busy
+     * had its idle timer reset by the very claim that refused it, so the next attempt came a full
+     * reclaim window later: 10s of dead grid between two jobs on one key, with all three workers
+     * sitting idle. Measured 10324ms between consecutive same-key completions; now ~4.2s
+     * (work + minIdle + poll), asserted by
+     * {@code PerKeySerializedIntegrationTest#aSameKeyJobStartsPromptlyAfterTheOneBeforeIt}.
+     *
+     * <p>The cost is churn: contended entries are claimed and refused about once a second per worker.
+     * That is cheap, and it is the pattern's own mechanism made visible rather than hidden.
+     */
+    private static final long RECLAIM_MIN_IDLE_MS = 1000;
 
     // Worker management
     private final Map<Integer, AtomicBoolean> workerRunning = new ConcurrentHashMap<>();
@@ -171,8 +187,9 @@ public class PerKeySerializedService implements CommandLineRunner {
 
     private void claimAndProcessIdleMessages(int workerId, String consumerName, String doneStream, Jedis jedis)
             throws InterruptedException {
-        // Claim messages idle longer than the processing time, so we never reclaim
-        // a message another worker is still actively processing.
+        // Claim messages that have sat for RECLAIM_MIN_IDLE_MS. This threshold does NOT need to
+        // outlast the processing time: reclaiming a message whose key is still held is harmless
+        // because the SET NX below refuses it. See the constant's javadoc.
         var claimResult = jedis.xautoclaim(JOB_STREAM, JOB_GROUP, consumerName,
             RECLAIM_MIN_IDLE_MS, new StreamEntryID("0-0"), new XAutoClaimParams().count(1));
 

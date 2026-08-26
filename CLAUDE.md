@@ -41,12 +41,12 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   **0 errors, 0 warnings** across both files — measured 2026-08-25.
-- **Backend tests:** `mvn clean test` — **148 tests, all 12 patterns covered**. Integration tests use a
+- **Backend tests:** `mvn clean test` — **151 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
   run. **The suite takes ~4 minutes**; that is not a hang: `TokenBucketIntegrationTest` (117s) and
-  `PerKeySerializedIntegrationTest` (46s) assert timing-based guarantees against the services' real
+  `PerKeySerializedIntegrationTest` (60s) assert timing-based guarantees against the services' real
   4–10s simulated work. Writing a new pattern test? Two traps: (1) `mvn test` without `clean` fails
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
@@ -199,6 +199,24 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   Bucket's margin is thinner than the rule of thumb (`RECLAIM_MIN_IDLE_MS` 15s vs 10s for a CSV job =
   1.5x, not 2x) — it holds because it still exceeds the work time, so treat those two constants as
   coupled. The **LLM Chat sweeper remains unaudited** — see `docs/TODO.md`.
+- **Per-Key Serialized is the one deliberate exception to that rule** (2026-08-26): `RECLAIM_MIN_IDLE_MS`
+  is **1000 ms against 2700 ms of work**, i.e. *shorter*. It is safe **only** because in this pattern
+  minIdle is not what prevents a second run — the **per-key `SET NX` lock is**. A worker that claims a
+  message whose key is still held fails the lock and drops it back untouched, so an early claim costs
+  one refused round trip instead of a duplicate. The lock cannot lapse mid-job either (TTL 30s vs 2.7s
+  of work). **Do not copy this inversion into a pattern that has no lock.**
+  It was 10000 ms, and that was the demo's worst flaw: a job whose key was busy had its idle timer
+  reset by the very claim that refused it, so the next attempt came a whole reclaim window later —
+  **10s of dead grid between two jobs on one key with all three workers idle** (measured 10324 ms
+  between consecutive same-key completions; now ~4.2s = work + minIdle + poll). The default batch went
+  from **46 rows to 16**. Cost: contended entries are claimed and refused about once a second per
+  worker, so the grid shows more `⊘` markers — that is the mechanism, not noise.
+  **Two tests, and only one of them has teeth:**
+  `anInFlightJobIsNotReRunByAnIdleWorkerWhoseClaimBeatsTheWorkTime` submits **one** job so two workers
+  are idle while it runs — with `.nx()` removed it fails with **three** completions for one job.
+  `oneSaturatedKeyIsNeverProcessedTwiceEvenThoughMinIdleIsBelowTheWorkTime` (6 jobs / 3 workers)
+  **passes even with the lock removed**, because every worker is busy in lockstep and no idle worker is
+  ever there to steal one. Saturation is the wrong shape for this risk; an idle worker is the right one.
 - **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
   Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
   corrupted classes (`ClassFormatError: Truncated class file`).
