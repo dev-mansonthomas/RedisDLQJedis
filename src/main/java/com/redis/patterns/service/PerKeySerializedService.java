@@ -44,7 +44,16 @@ public class PerKeySerializedService implements CommandLineRunner {
     // Configuration
     private static final int NUM_WORKERS = 3;
     private static final long POLL_INTERVAL_MS = 500;
-    private static final long PROCESSING_SLEEP_MS = 4000;
+    /**
+     * Simulated work per job. Cut from 4000ms by about a third on 2026-08-26: four rows of the
+     * time-slot grid per job read as sluggish.
+     *
+     * <p>Coupled to {@code RECLAIM_MIN_IDLE_MS} by the project-wide rule that minIdle must outlast
+     * the work time, or a free worker claims a job its peer is still processing and the job runs
+     * twice, silently. The margin went from 2.5x to 3.7x here, so this direction is always safe —
+     * raising it back above 5000ms would not be.
+     */
+    private static final long PROCESSING_SLEEP_MS = 2700;
     private static final long LOCK_TTL_MS = 30000; // 30 seconds lock TTL
     // Reclaim idle must exceed processing time, otherwise an in-flight message
     // gets reclaimed repeatedly while a worker is still processing it.

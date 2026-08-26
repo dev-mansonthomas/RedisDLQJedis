@@ -1,4 +1,4 @@
-/** Slot width. One second reads well against the 4s processing time: a job spans four rows. */
+/** Slot width. One second reads well against the 2.7s processing time: a job spans three rows. */
 export const SLOT_MS = 1000;
 
 /** Rows retained. A demo page left open must not grow without bound. */
@@ -112,8 +112,8 @@ export function findOverlaps(runs: Run[], nowMs: number, lockTtlMs: number): [Ru
 /**
  * The slots in which a run is part of a breach — the pair's *intersection*, not the whole run.
  *
- * A 4s job overlapped for its last second is only violating in that second: outlining all four rows
- * would blame three slots in which the lock was doing its job.
+ * A 2.7s job overlapped for its last second is only violating in that second: outlining all three
+ * rows would blame the slots in which the lock was doing its job.
  */
 function violatingSlots(overlaps: [Run, Run][], anchorMs: number, nowMs: number,
                         lockTtlMs: number): Map<string, Set<number>> {

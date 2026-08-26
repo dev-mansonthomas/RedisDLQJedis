@@ -23,7 +23,7 @@ the same `orderId` at once), without a global lock.
   `FCALL release_lock` (compare-and-delete: deletes only if the lock still holds **our** token, so a
   worker can never delete a lock another worker re-acquired after a TTL expiry).
 - Lock held by another → **skip** (don't block); leave message pending. `XAUTOCLAIM` (idle 10s,
-  above the ~4s processing time) re-delivers it later, by which time the holder has released the lock.
+  above the ~2.7s processing time) re-delivers it later, by which time the holder has released the lock.
 
 ## Time-slot lanes
 
@@ -149,6 +149,14 @@ watched for 40 s):
 | `LOCK_SKIPPED` markers appear while `#1001` is held | 11 markers |
 | Overlap counter | `0 overlaps` |
 | Browser console | clean |
+
+Those slot ranges are five rows long because the walkthrough ran against `PROCESSING_SLEEP_MS = 4000`.
+**Cut to 2700 ms on 2026-08-26** (four rows per job read as sluggish): bars are now **3–4 rows,
+mean 3.5** over 11 jobs. **The demo's wall clock barely moved — 46 rows to 45.** It is dominated by
+`RECLAIM_MIN_IDLE_MS` (10 s), not by the work time: a same-key job that finds the lock held waits out
+the reclaim window before anyone retries it, so the gaps between bars, not the bars, set the pace.
+Shortening those gaps means lowering the reclaim threshold, which the minIdle rule floors at
+`2 × 2700 = 5400 ms`.
 
 **The detector was proven able to fail, and the plan's recipe for doing it was wrong.** Lowering
 `RECLAIM_MIN_IDLE_MS` below the processing time does *not* breach this pattern: the early claimant

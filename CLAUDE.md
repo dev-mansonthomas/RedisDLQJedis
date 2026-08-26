@@ -46,7 +46,7 @@ observability over hardening.
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
   run. **The suite takes ~4 minutes**; that is not a hang: `TokenBucketIntegrationTest` (117s) and
-  `PerKeySerializedIntegrationTest` (50s) assert timing-based guarantees against the services' real
+  `PerKeySerializedIntegrationTest` (46s) assert timing-based guarantees against the services' real
   4–10s simulated work. Writing a new pattern test? Two traps: (1) `mvn test` without `clean` fails
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
@@ -115,7 +115,7 @@ observability over hardening.
 | `/pubsub-topic-routing` | Topic Routing (Pub/Sub) | `PSUBSCRIBE` patterns | `order.<region>.<event>` |
 | `/content-routing` | Content-Based Routing | Streams + amount thresholds | `payments.incoming.v1` → tiers |
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
-| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 4s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision; each cell names its **action** beside the key, and the **clock only ticks while a job is in flight** (`data-clock` / `▶ live` vs `⏸ stopped`) so an idle page stops growing rows | `jobs.perkey.v1`, `running:order:{id}` |
+| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 2.7s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision; each cell names its **action** beside the key, and the **clock only ticks while a job is in flight** (`data-clock` / `▶ live` vs `⏸ stopped`) so an idle page stops growing rows | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
 | `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010); **conversation persists across page reload** (frontend keeps the cid in `localStorage` → `chat:{cid}` is the source of truth) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
 

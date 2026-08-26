@@ -100,8 +100,8 @@ class PerKeySlotEventsIntegrationTest extends AbstractRedisIntegrationTest {
 
     @Test
     void startedPrecedesTheProcessingWindow_notTrailingIt() throws Exception {
-        // STARTED must be emitted BEFORE the 4s sleep, or a running job only appears once it is over
-        // and the grid can never show occupancy.
+        // STARTED must be emitted BEFORE the 2700ms sleep, or a running job only appears once it is
+        // over and the grid can never show occupancy.
         long submittedAt = System.currentTimeMillis();
         service.submitJobs(List.of(Map.of("orderId", "#7002", "action", "validate")));
 
@@ -110,8 +110,8 @@ class PerKeySlotEventsIntegrationTest extends AbstractRedisIntegrationTest {
         PerKeySlotEvent started = forKey("#7002").getFirst();
         assertThat(started.getPhase()).isEqualTo(PerKeySlotEvent.Phase.STARTED);
         assertThat(started.getAtMs() - submittedAt)
-                .as("STARTED lands well inside the 4000ms processing window, not after it")
-                .isLessThan(3_000L);
+                .as("STARTED lands well inside the 2700ms processing window, not after it")
+                .isLessThan(2_000L);
     }
 
     @Test

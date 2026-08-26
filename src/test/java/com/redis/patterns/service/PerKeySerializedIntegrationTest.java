@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PerKeySerializedIntegrationTest extends AbstractRedisIntegrationTest {
 
     /** Matches {@code PerKeySerializedService.PROCESSING_SLEEP_MS}. */
-    private static final long WORK_MS = 4_000;
+    private static final long WORK_MS = 2_700;
     private static final int WORKERS = 3;
 
     private JedisPool servicePool;
