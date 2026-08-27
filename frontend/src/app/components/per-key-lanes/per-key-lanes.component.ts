@@ -12,6 +12,17 @@ const WORKERS = 3;
 /** `PerKeySerializedService.LOCK_TTL_MS` — how long an abandoned run can still hold a key. */
 const LOCK_TTL_MS = 30_000;
 
+/**
+ * The per-worker done streams, named exactly as Redis holds them
+ * (`PerKeySerializedService.WORKER_DONE_PREFIX`).
+ *
+ * This grid replaced the three stream viewers that used to sit here, so it carries what their headers
+ * carried: a column labelled "worker-2" leaves a reader unable to match it against RedisInsight or a
+ * `redis-cli XRANGE`.
+ */
+const DONE_STREAM_PREFIX = 'jobs.perkey.v1.worker';
+const DONE_STREAM_SUFFIX = '.done';
+
 @Component({
   selector: 'app-per-key-lanes',
   standalone: true,
@@ -24,16 +35,24 @@ const LOCK_TTL_MS = 30_000;
         <span class="overlap-count" [class.bad]="grid().overlapCount > 0">{{ grid().overlapCount }} {{ grid().overlapCount === 1 ? 'overlap' : 'overlaps' }}</span>
       </header>
 
+      <div class="grid-head">
+        <span class="slot-label"></span>
+        @for (worker of workers; track worker) {
+          <span class="worker-head">
+            <span class="worker-stream">{{ doneStream(worker) }}</span>
+            <span class="worker-status"
+                  [class.connected]="connected()"
+                  [class.disconnected]="!connected()">
+              <span class="status-dot"></span>{{ connected() ? 'Connected' : 'Disconnected' }}
+            </span>
+          </span>
+        }
+      </div>
+
       @if (grid().rows.length === 0) {
         <p class="empty">Submit jobs to watch the workers fill the slots.</p>
       } @else {
-        <div class="grid-head">
-          <span class="slot-label"></span>
-          @for (worker of workers; track worker) {
-            <span class="worker-label">worker-{{ worker }}</span>
-          }
-        </div>
-
+        <div class="lane-body">
         @for (row of grid().rows; track row.slot) {
           <div class="lane-row" [class.violating]="row.violating">
             <span class="slot-label">t+{{ row.slot }}s</span>
@@ -62,6 +81,7 @@ const LOCK_TTL_MS = 30_000;
             }
           </div>
         }
+        </div>
       }
     </section>
     `,
@@ -83,10 +103,28 @@ const LOCK_TTL_MS = 30_000;
       display: grid; grid-template-columns: 56px repeat(3, minmax(0, 1fr));
       gap: 2px; padding: 0 8px;
     }
-    .grid-head { padding-top: 8px; padding-bottom: 4px; }
-    .worker-label, .slot-label {
+    .grid-head {
+      padding-top: 8px; padding-bottom: 6px; align-items: end;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .slot-label {
       font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;
     }
+    /* Two lines on purpose: the stream name is 27 characters and must stay readable in full. */
+    .worker-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .worker-stream {
+      font-family: 'Courier New', monospace; font-size: 11px; font-weight: 700; color: #1e293b;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .worker-status {
+      display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600;
+    }
+    .worker-status.connected { color: #166534; }
+    .worker-status.disconnected { color: #991b1b; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    /* The grid took the viewers' slot in the layout, so it takes their bounded height too: at
+       MAX_SLOTS the body would otherwise be 120 rows tall and push the page around. */
+    .lane-body { max-height: 840px; overflow-y: auto; padding-top: 4px; }
     .lane-row { align-items: stretch; }
     .lane-row:last-child { padding-bottom: 8px; }
     .lane-row.violating { outline: 2px solid #dc2626; outline-offset: -1px; border-radius: 3px; }
@@ -118,10 +156,25 @@ const LOCK_TTL_MS = 30_000;
 export class PerKeyLanesComponent implements OnInit, OnDestroy {
   private readonly ws = inject(WebSocketService);
   private subscription?: Subscription;
+  private statusSubscription?: Subscription;
   private tick?: ReturnType<typeof setInterval>;
 
   readonly workers = Array.from({ length: WORKERS }, (_, i) => i + 1);
   readonly keyColor = keyColor;
+
+  /**
+   * Socket state, shown once per column because that is where a reader looks for it.
+   *
+   * One socket serves the whole app, so the three indicators always agree — they are not three
+   * independent connections, and this mirrors exactly what the three stream viewers displayed here
+   * before the grid replaced them.
+   */
+  private readonly connectedState = signal(false);
+  readonly connected = this.connectedState.asReadonly();
+
+  doneStream(worker: number): string {
+    return `${DONE_STREAM_PREFIX}${worker}${DONE_STREAM_SUFFIX}`;
+  }
 
   /**
    * State is replaced wholesale on every update, never mutated: an OnPush view reading a mutated
@@ -165,6 +218,8 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.statusSubscription = this.ws.getConnectionStatus()
+      .subscribe(status => this.connectedState.set(status));
     this.subscription = this.ws.getEvents().subscribe((event: StreamEvent) => {
       if (event.eventType !== 'PER_KEY_SLOT') return;
       this.absorb(event as PerKeySlotEvent);
@@ -179,6 +234,7 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
+    this.statusSubscription?.unsubscribe();
     if (this.tick !== undefined) clearInterval(this.tick);
   }
 

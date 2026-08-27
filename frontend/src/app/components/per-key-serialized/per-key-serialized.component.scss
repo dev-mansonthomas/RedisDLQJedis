@@ -33,6 +33,9 @@
 .streams-section { display: flex; flex-direction: column; gap: 16px; }
 .streams-row { display: flex; gap: 12px; }
 .streams-row.workers { display: grid; grid-template-columns: repeat(3, 1fr); }
+/* The grid replaced the three worker viewers in this row, so it takes the full width they shared. */
+.streams-row.lanes-row { display: block; }
+.streams-row.lanes-row app-per-key-lanes { display: block; }
 .stream-wrapper { flex: 1; }
 .stream-wrapper.incoming app-stream-viewer { --header-bg: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
 .stream-wrapper.worker app-stream-viewer { --header-bg: linear-gradient(135deg, #10b981 0%, #059669 100%); }
@@ -52,6 +55,7 @@
 @media (max-width: 1200px) {
   .main-layout { grid-template-columns: 1fr; }
   .streams-row.workers { grid-template-columns: 1fr; }
+  .streams-row.lanes-row { display: block; }
   .explanation-content { grid-template-columns: 1fr; }
 }
 

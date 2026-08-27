@@ -33,6 +33,39 @@ describe('PerKeyLanesComponent', () => {
     await settle();
   });
 
+  // The grid replaced the three per-worker stream viewers on the page, so it inherits the two things
+  // those headers carried: the done stream's real name and the socket's state. A column labelled
+  // "worker-2" leaves a reader unable to match it against RedisInsight or a redis-cli XRANGE.
+  it('labels each column with the worker\'s original done-stream name', () => {
+    const names = [...host().querySelectorAll('.worker-stream')].map(e => e.textContent!.trim());
+
+    expect(names).toEqual([
+      'jobs.perkey.v1.worker1.done',
+      'jobs.perkey.v1.worker2.done',
+      'jobs.perkey.v1.worker3.done'
+    ]);
+  });
+
+  it('shows the WebSocket status per column, live from the socket', async () => {
+    const statuses = () => [...host().querySelectorAll('.worker-status')]
+      .map(e => e.textContent!.trim());
+
+    expect(statuses()).toEqual(['Connected', 'Connected', 'Connected']);
+    expect(host().querySelectorAll('.worker-status.connected')).toHaveLength(3);
+
+    socket.connection.next(false);
+    await settle();
+
+    expect(statuses()).toEqual(['Disconnected', 'Disconnected', 'Disconnected']);
+    expect(host().querySelectorAll('.worker-status.disconnected')).toHaveLength(3);
+  });
+
+  it('keeps the header visible before any event has arrived', () => {
+    // The header is not part of the grid body: an empty demo must still show what it is watching.
+    expect(host().querySelector('.lane-row')).toBeNull();
+    expect(host().querySelectorAll('.worker-stream')).toHaveLength(3);
+  });
+
   it('shows an empty state until the first event', () => {
     expect(host().querySelector('.lane-row')).toBeNull();
     expect(host().textContent).toContain('Submit jobs');

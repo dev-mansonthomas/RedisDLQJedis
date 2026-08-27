@@ -129,6 +129,17 @@ spanning four slots outlines four rows but counts once).
 - `getOrderColor` moves out of `PerKeySerializedComponent` into a shared helper: the job list and the
   grid must tint `#1001` identically, or cross-reading the two is actively misleading.
 
+### Placement (2026-08-27)
+The grid **replaced the three per-worker done-stream viewers** rather than sitting under them: both
+were views of work completed per worker, and only the grid shows the guarantee. It inherits the two
+things those headers carried and the grid lacked — each column is titled with the worker's **real
+Redis stream name** (`jobs.perkey.v1.worker{N}.done`, so a reader can match a column against
+RedisInsight or `redis-cli XRANGE`) over a **live socket indicator** on a second line. The three
+indicators always agree: one socket serves the whole app, exactly as the viewers showed. The grid body
+scrolls at `max-height: 840px`, because at `MAX_SLOTS` it would otherwise be 120 rows tall in a slot
+sized for a fixed-height viewer. The incoming viewer (`jobs.perkey.v1`) stays — it shows work
+*waiting*, which the grid does not.
+
 ### Acceptance (lanes)
 - Submitting the default batch (5 jobs on `#1001`, then one each on `#2002`..`#6006`) renders a grid
   where **no row ever holds two cells of the same colour**, and the five `#1001` jobs occupy
