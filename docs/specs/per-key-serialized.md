@@ -157,6 +157,24 @@ screen. The button sits outside the scroll container — measured: scrolling the
 it by 0 px. The incoming viewer runs at `pageSize=30` so the whole batch is visible (`24 of 24
 messages`); the batch now fills **36 grid rows**, still `0 overlaps`.
 
+### Millisecond stamps at the run boundaries (2026-08-27)
+A row is one second wide, and the jobs inside it are not. So two cells of the same colour in one row —
+reported as a *chevauchement* on `#1001` at `T+2s` — look exactly like the breach the grid exists to
+catch, while `overlapCount` correctly says `0`. Nothing on screen backed that up.
+
+Each cell now stamps `mm:ss.SSS`: **`▸` in the slot where the run starts, `▪` in the slot where it
+ends**, once each, never on the rows a run merely spans. An **open run gets no end stamp** — its end is
+extrapolated from `now` or the lock TTL, and printing a guess to the millisecond would read as a
+measurement.
+
+`stamp()` is computed from the epoch, not through `Date`: a half-hour-offset zone would shift the
+minutes and make both the reading and its spec depend on where they run.
+
+Measured on a 36-row run: **3 rows held one key twice, and in every one the `▪` end preceded the `▸`
+start** — `#1001` at `t+9s` by **14 ms** (`52:08.716` → `52:08.730`), at `t+18s` by 304 ms, `#6006` at
+`t+32s` by 364 ms. A 14 ms hand-off is the case that no second-resolution grid can ever show, and the
+reason judgement lives in `findOverlaps` rather than in the row.
+
 ### The refusal marker, and why it confuses readers (2026-08-27)
 Two questions came from the running page, and **neither is a bug** — both were verified in the backend
 log before being answered, and a legend under the grid now states them:

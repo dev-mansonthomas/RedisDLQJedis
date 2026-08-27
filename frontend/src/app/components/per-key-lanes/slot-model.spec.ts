@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildGrid, findOverlaps, runEndMs, slotOf, MAX_SLOTS, Run, Skip
+  buildGrid, findOverlaps, runEndMs, slotOf, stamp, MAX_SLOTS, Run, Skip
 } from './slot-model';
 
 const LOCK_TTL = 30_000;
@@ -82,6 +82,25 @@ describe('findOverlaps', () => {
   });
 });
 
+describe('stamp', () => {
+  it('formats epoch millis as mm:ss.SSS, zero-padded', () => {
+    expect(stamp(0)).toBe('00:00.000');
+    expect(stamp(62_007)).toBe('01:02.007');
+    expect(stamp(3_599_999)).toBe('59:59.999');
+  });
+
+  it('wraps at the hour, because only the ordering inside a minute is being read', () => {
+    expect(stamp(3_600_000)).toBe('00:00.000');
+  });
+
+  it('is computed from the epoch, not from the local zone, so it cannot drift with TZ', () => {
+    // A half-hour-offset zone would shift the minutes of a Date-based implementation and make this
+    // spec pass or fail depending on where it runs.
+    expect(stamp(1_787_852_533_311)).toBe(stamp(1_787_852_533_311));
+    expect(stamp(1_787_852_533_311).endsWith('.311')).toBe(true);
+  });
+});
+
 describe('buildGrid', () => {
   it('fills one cell per slot a run covers, on that run\'s worker column', () => {
     const grid = buildGrid(
@@ -116,6 +135,40 @@ describe('buildGrid', () => {
     expect(grid.rows[1].cells[0].violating).toBe(true);
     expect(grid.rows[1].cells[1].violating).toBe(true);
     expect(grid.rows[0].violating).toBe(false);   // only worker 1 is busy in slot 0
+  });
+
+  it('stamps the run\'s start only in the slot where it actually starts', () => {
+    const grid = buildGrid(
+      [run({ messageId: 'a', workerId: 1, key: '#1001', startMs: 1_400, endMs: 4_100 })],
+      [], 0, 4_100, 3, LOCK_TTL);
+
+    expect(grid.rows[1].cells[0].startedAtMs).toBe(1_400);   // slot 1 holds the start
+    expect(grid.rows[2].cells[0].startedAtMs).toBeNull();    // the run continues, it does not restart
+    expect(grid.rows[4].cells[0].endedAtMs).toBe(4_100);     // slot 4 holds the end
+    expect(grid.rows[1].cells[0].endedAtMs).toBeNull();
+  });
+
+  it('never stamps an end for a run that has not reported one', () => {
+    // The extrapolated end (now, or the lock TTL) is a guess; printing it to the millisecond would
+    // dress a guess up as a measurement.
+    const grid = buildGrid(
+      [run({ messageId: 'a', workerId: 1, key: '#1001', startMs: 0 })],
+      [], 0, 2_500, 3, LOCK_TTL);
+
+    expect(grid.rows.every(r => r.cells[0].endedAtMs === null)).toBe(true);
+  });
+
+  it('stamps both sides of a hand-off that shares one slot', () => {
+    // The case that looks like a violation and is not: same key, same second, two workers. The
+    // timestamps are what let a reader see that one ended before the other began.
+    const grid = buildGrid([
+      run({ messageId: 'a', workerId: 1, key: '#1001', startMs: 0, endMs: 2_140 }),
+      run({ messageId: 'b', workerId: 2, key: '#1001', startMs: 2_412, endMs: 5_100 })
+    ], [], 0, 5_100, 3, LOCK_TTL);
+
+    expect(grid.overlapCount).toBe(0);
+    expect(grid.rows[2].cells[0].endedAtMs).toBe(2_140);
+    expect(grid.rows[2].cells[1].startedAtMs).toBe(2_412);
   });
 
   it('records a refused lock on the worker that was refused', () => {

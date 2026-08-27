@@ -26,6 +26,16 @@ export interface Cell {
   key: string | null;
   action: string;
   running: boolean;
+  /**
+   * The run's start, in epoch millis, but **only in the slot where it starts** — null on the rows
+   * where the run merely continues.
+   */
+  startedAtMs: number | null;
+  /**
+   * The run's *reported* end, only in the slot where it ends. Null for a run still open: the
+   * extrapolated end is a guess, and printing a guess to the millisecond would read as a measurement.
+   */
+  endedAtMs: number | null;
   /** The run outlived the lock TTL without a FINISHED, so its end is a guess. */
   endUnknown: boolean;
   skips: string[];
@@ -43,6 +53,25 @@ export interface Grid {
   rows: Row[];
   /** Distinct overlapping PAIRS of runs, not outlined rows: one overlap spanning four slots counts once. */
   overlapCount: number;
+}
+
+/**
+ * Epoch millis as `mm:ss.SSS`.
+ *
+ * Sub-second precision is the whole point: two jobs on one key can share a slot without overlapping,
+ * and at second resolution that hand-off is indistinguishable from a breach. The grid says which it
+ * is (`overlapCount`), and these stamps let a reader check it.
+ *
+ * Computed from the epoch rather than through `Date`, so a half-hour-offset zone cannot shift the
+ * minutes and make the reading — or its spec — depend on where it runs. Seconds and millis, which are
+ * what the ordering is read from, are zone-invariant either way.
+ */
+export function stamp(atMs: number): string {
+  const totalSeconds = Math.floor(atMs / 1000);
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const ss = totalSeconds % 60;
+  const ms = atMs % 1000;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
 export function slotOf(atMs: number, anchorMs: number): number {
@@ -162,10 +191,17 @@ export function buildGrid(runs: Run[], skips: Skip[], anchorMs: number, nowMs: n
         .filter(s => s.workerId === worker && s.atMs >= slotStart && s.atMs < slotEnd)
         .map(s => s.key);
 
+      const startsHere = run?.startMs !== null && run?.startMs !== undefined
+        && run.startMs >= slotStart && run.startMs < slotEnd;
+      const endsHere = run?.endMs !== null && run?.endMs !== undefined
+        && run.endMs >= slotStart && run.endMs < slotEnd;
+
       cells.push({
         key: run?.key ?? null,
         action: run?.action ?? '',
         running: run ? run.endMs === null : false,
+        startedAtMs: startsHere ? (run.startMs as number) : null,
+        endedAtMs: endsHere ? (run.endMs as number) : null,
         endUnknown: run ? endUnknown(run, nowMs, lockTtlMs) : false,
         skips: cellSkips,
         violating: run ? (violating.get(run.messageId)?.has(slot) ?? false) : false

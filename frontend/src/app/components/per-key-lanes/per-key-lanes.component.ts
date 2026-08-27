@@ -4,7 +4,7 @@ import { Subscription } from 'rxjs';
 
 import { PerKeySlotEvent, StreamEvent, WebSocketService } from '../../services/websocket.service';
 import { keyColor } from '../../services/key-color';
-import { buildGrid, Run, Skip, SLOT_MS } from './slot-model';
+import { buildGrid, stamp, Run, Skip, SLOT_MS } from './slot-model';
 
 /** Workers the service runs (`PerKeySerializedService.NUM_WORKERS`). */
 const WORKERS = 3;
@@ -70,6 +70,14 @@ const DONE_STREAM_SUFFIX = '.done';
                 @if (cell.action) {
                   <span class="cell-action">{{ cell.action }}</span>
                 }
+                @if (cell.startedAtMs !== null) {
+                  <span class="stamp stamp-start"
+                        title="This job started at this instant (mm:ss.SSS)">▸{{ stamp(cell.startedAtMs) }}</span>
+                }
+                @if (cell.endedAtMs !== null) {
+                  <span class="stamp stamp-end"
+                        title="This job finished at this instant (mm:ss.SSS)">▪{{ stamp(cell.endedAtMs) }}</span>
+                }
                 @if (cell.endUnknown) {
                   <span class="unknown" title="No FINISHED seen; the lock TTL has expired">?</span>
                 }
@@ -89,6 +97,7 @@ const DONE_STREAM_SUFFIX = '.done';
            mid-run, and one worker produced up to 3 refusals inside a single second. -->
       <footer class="lanes-legend">
         <span class="legend-mark">⊘</span>
+
         <p class="legend-text">
           <strong>One refused attempt.</strong> A worker read a job, found its key already held by
           another worker, and moved on rather than waiting — the job stays pending and comes back via
@@ -99,6 +108,12 @@ const DONE_STREAM_SUFFIX = '.done';
           <strong>Count per attempt, not per worker.</strong> One worker can be refused several times
           in the same second — it polls twice a second and each poll can be turned away — so a row
           may hold more markers than there are workers.
+        </p>
+        <p class="legend-text">
+          <strong>▸ start and ▪ end (mm:ss.SSS).</strong> Two cells of the same colour in one row are
+          a <em>hand-off</em>, not an overlap, whenever the ▪ end above precedes the ▸ start beside it
+          — one second of grid is far coarser than the jobs it holds. The
+          <code>overlaps</code> counter judges the real intervals, never the row.
         </p>
         <p class="legend-text">
           <strong>On a coloured cell, it sits at a job boundary.</strong> A worker cannot be refused
@@ -156,7 +171,7 @@ const DONE_STREAM_SUFFIX = '.done';
       padding: 10px 14px; border-top: 1px solid #e2e8f0; background: #f8fafc;
     }
     .legend-mark {
-      grid-row: 1 / span 3; align-self: center;
+      grid-row: 1 / span 4; align-self: center;
       color: #b91c1c; background: #fee2e2; border-radius: 3px; padding: 2px 6px;
       font-size: 14px; font-weight: 700;
     }
@@ -181,6 +196,15 @@ const DONE_STREAM_SUFFIX = '.done';
     .lane-cell.running { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.6); }
     .lane-cell.violating { outline: 2px solid #dc2626; }
     .cell-key { text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35); }
+    /* Pushed to the right so a column of stamps lines up and can be read down the page. */
+    .stamp {
+      margin-left: auto; padding: 0 4px; border-radius: 3px;
+      background: rgba(255, 255, 255, 0.25); color: white;
+      font-family: 'Courier New', monospace; font-size: 10px; font-weight: 700;
+      white-space: nowrap;
+    }
+    .stamp-end { background: rgba(0, 0, 0, 0.28); }
+    .stamp + .stamp { margin-left: 4px; }
     /* The action is the *what*, the colour is the *which key*: a row saying only "#1001" four times
        tells a viewer nothing about the work being serialized. Lighter than the key so the eye still
        lands on the colour block first. */
@@ -205,6 +229,7 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
 
   readonly workers = Array.from({ length: WORKERS }, (_, i) => i + 1);
   readonly keyColor = keyColor;
+  readonly stamp = stamp;
 
   /**
    * Socket state, shown once per column because that is where a reader looks for it.

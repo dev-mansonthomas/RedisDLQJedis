@@ -188,6 +188,37 @@ describe('PerKeyLanesComponent', () => {
     expect(host().querySelectorAll('.lane-row').length).toBe(7);
   });
 
+  it('prints mm:ss.SSS on both sides of a same-key hand-off in one slot', async () => {
+    // Straight from the reported screenshot: at T+2s, #1001 validateAddress ends on one worker while
+    // #1001 checkFraud starts on another. Two blue cells in one row read as a violation; the counter
+    // says 0 overlaps, and until now nothing on screen backed that up.
+    socket.emit(slot('STARTED',
+      { workerId: 2, orderId: '#1001', messageId: 'm1', atMs: 1_000_000, action: 'validateAddress' }));
+    socket.emit(slot('FINISHED',
+      { workerId: 2, orderId: '#1001', messageId: 'm1', atMs: 1_002_140, action: 'validateAddress' }));
+    socket.emit(slot('STARTED',
+      { workerId: 1, orderId: '#1001', messageId: 'm2', atMs: 1_002_412, action: 'checkFraud' }));
+    await settle();
+
+    const row = host().querySelectorAll('.lane-row')[2];
+    const ended = row.querySelector('.lane-cell[data-worker="2"] .stamp-end')!;
+    const started = row.querySelector('.lane-cell[data-worker="1"] .stamp-start')!;
+
+    expect(ended.textContent).toContain('.140');
+    expect(started.textContent).toContain('.412');
+    expect(host().querySelector('.lane-row.violating')).toBeNull();
+    expect(host().textContent).toContain('0 overlaps');
+  });
+
+  it('stamps a start once, not on every row the run covers', async () => {
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_400 }));
+    socket.emit(slot('FINISHED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_003_100 }));
+    await settle();
+
+    expect(host().querySelectorAll('.stamp-start')).toHaveLength(1);
+    expect(host().querySelectorAll('.stamp-end')).toHaveLength(1);
+  });
+
   it('tolerates a FINISHED whose STARTED was never seen', async () => {
     // The page can be opened mid-run. Dropping the event would lose a completed job entirely.
     socket.emit(slot('FINISHED', { workerId: 1, orderId: '#2002', messageId: 'm9', atMs: 1_000_000 }));
