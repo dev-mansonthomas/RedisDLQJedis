@@ -83,6 +83,30 @@ const DONE_STREAM_SUFFIX = '.done';
         }
         </div>
       }
+
+      <!-- Both facts below were asked about by a reader of the real page, and measured in the backend
+           log before being written here: 33 runs showed zero refusals logged while that worker was
+           mid-run, and one worker produced up to 3 refusals inside a single second. -->
+      <footer class="lanes-legend">
+        <span class="legend-mark">⊘</span>
+        <p class="legend-text">
+          <strong>One refused attempt.</strong> A worker read a job, found its key already held by
+          another worker, and moved on rather than waiting — the job stays pending and comes back via
+          <code>XAUTOCLAIM</code> about a second later. This refusal <em>is</em> the guarantee doing
+          its work.
+        </p>
+        <p class="legend-text">
+          <strong>Count per attempt, not per worker.</strong> One worker can be refused several times
+          in the same second — it polls twice a second and each poll can be turned away — so a row
+          may hold more markers than there are workers.
+        </p>
+        <p class="legend-text">
+          <strong>On a coloured cell, it sits at a job boundary.</strong> A worker cannot be refused
+          while it is processing, since it is asleep for the whole job. A marker on a busy cell means
+          the worker finished that job, was refused, and picked up the next one — all inside the same
+          second.
+        </p>
+      </footer>
     </section>
     `,
   styles: [`
@@ -116,12 +140,32 @@ const DONE_STREAM_SUFFIX = '.done';
       font-family: 'Courier New', monospace; font-size: 11px; font-weight: 700; color: #1e293b;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* Same pill as every stream viewer's header (.connection-status): this grid replaced three of
+       them, so the state a reader looks for must not change shape on the way.
+       No backticks in here — this block is a template literal, and one would end it early. */
     .worker-status {
-      display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600;
+      display: inline-flex; align-items: center; align-self: flex-start; gap: 4px;
+      padding: 3px 8px; border-radius: 10px; background: #f1f5f9;
+      font-size: 11px; font-weight: 500;
     }
-    .worker-status.connected { color: #166534; }
-    .worker-status.disconnected { color: #991b1b; }
-    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .worker-status.connected { background: #dcfce7; color: #166534; }
+    .worker-status.disconnected { background: #fee2e2; color: #991b1b; }
+    .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .lanes-legend {
+      display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start;
+      padding: 10px 14px; border-top: 1px solid #e2e8f0; background: #f8fafc;
+    }
+    .legend-mark {
+      grid-row: 1 / span 3; align-self: center;
+      color: #b91c1c; background: #fee2e2; border-radius: 3px; padding: 2px 6px;
+      font-size: 14px; font-weight: 700;
+    }
+    .legend-text { margin: 0; font-size: 12px; line-height: 1.45; color: #475569; }
+    .legend-text strong { color: #1e293b; }
+    .legend-text code {
+      font-family: 'Courier New', monospace; font-size: 11px;
+      background: #e2e8f0; border-radius: 3px; padding: 0 4px;
+    }
     /* The grid took the viewers' slot in the layout, so it takes their bounded height too: at
        MAX_SLOTS the body would otherwise be 120 rows tall and push the page around. */
     .lane-body { max-height: 840px; overflow-y: auto; padding-top: 4px; }

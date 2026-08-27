@@ -140,6 +140,23 @@ scrolls at `max-height: 840px`, because at `MAX_SLOTS` it would otherwise be 120
 sized for a fixed-height viewer. The incoming viewer (`jobs.perkey.v1`) stays — it shows work
 *waiting*, which the grid does not.
 
+### The refusal marker, and why it confuses readers (2026-08-27)
+Two questions came from the running page, and **neither is a bug** — both were verified in the backend
+log before being answered, and a legend under the grid now states them:
+
+- **Four markers on a row with three workers.** The count is **per refused attempt, not per worker**. A
+  worker polls twice a second and each poll can be turned away twice (once on the `XAUTOCLAIM` path,
+  once on the `XREADGROUP` path). Measured: **one worker produced 3 refusals inside a single second**
+  (`worker-2 @07:32:09` — at 09.233, 09.235, 09.742, then `PROCESSING` at 09.749).
+- **Markers on a row where every worker looks busy.** A worker **cannot** be refused while processing —
+  it is inside `Thread.sleep` for the whole job. So a marker on a coloured cell always sits at a *job
+  boundary* within that second: finished, refused, picked up the next. Measured across **33 runs: zero
+  refusals logged while that worker was mid-run.**
+
+The per-column socket state is a **green pill** (`#dcfce7` / `#166534`, radius 10px), the same
+`.connection-status` pill every stream viewer uses — the grid replaced three of those headers, so the
+state a reader looks for must not change shape on the way.
+
 ### Acceptance (lanes)
 - Submitting the default batch (5 jobs on `#1001`, then one each on `#2002`..`#6006`) renders a grid
   where **no row ever holds two cells of the same colour**, and the five `#1001` jobs occupy

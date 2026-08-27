@@ -66,6 +66,19 @@ describe('PerKeyLanesComponent', () => {
     expect(host().querySelectorAll('.worker-stream')).toHaveLength(3);
   });
 
+  it('explains the refusal marker below the grid, including the two counts that confuse readers', () => {
+    // Both questions came from a reader of the real page: four markers on a row with three workers,
+    // and markers on a row where every worker looks busy. Neither is a bug, and the grid was not
+    // saying so anywhere.
+    const legend = host().querySelector('.lanes-legend')!;
+
+    expect(legend).not.toBeNull();
+    expect(legend.textContent).toContain('⊘');
+    expect(legend.textContent).toContain('attempt');       // per attempt, not per worker
+    expect(legend.textContent).toContain('XAUTOCLAIM');    // where the retry comes from
+    expect(legend.textContent!.toLowerCase()).toContain('boundary');
+  });
+
   it('shows an empty state until the first event', () => {
     expect(host().querySelector('.lane-row')).toBeNull();
     expect(host().textContent).toContain('Submit jobs');

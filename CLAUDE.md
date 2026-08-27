@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **94 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **95 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -81,7 +81,11 @@ observability over hardening.
   associated with its control (a caption that labels a *group* is a `<span class="group-label">`, not a
   label), clickable non-button elements carry `role`/`tabindex`/`keydown`, and **components are
   `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, and **replace** its
-  value rather than mutating it in place, or the view will not refresh. Guarded by
+  value rather than mutating it in place, or the view will not refresh. **Never put a backtick inside
+  an inline `template:` or `styles: [...]` block** — not even in a CSS comment quoting a class name: it
+  ends the template literal, and `npm run lint` passes while `npm test` dies in the Angular compiler
+  with `isStringArrayOrDie` / `parseDirectiveStyles` and no line number (cost one debug cycle
+  2026-08-27). Guarded by
   `pubsub-subscriber.component.spec.ts`, `llm-chat.component.spec.ts` and
   `dlq-narration.component.spec.ts`; all three were verified by injecting the bug and watching them go
   red (the narration one fails 7 cases, 5 of them DOM assertions). Note the failure only shows when *no* other signal is
