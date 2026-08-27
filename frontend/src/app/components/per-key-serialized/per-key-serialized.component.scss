@@ -10,7 +10,13 @@
 .panel-header h3 { font-size: 15px; font-weight: 600; margin: 0; }
 .panel-content { padding: 16px; }
 
-.jobs-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+/* Scrolls rather than stretching: 24 jobs would otherwise make this panel twice the height of the
+   streams beside it, and push the Submit button off the first screen. The button lives outside this
+   container, so it stays reachable while the list scrolls. */
+.jobs-list {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;
+  max-height: 480px; overflow-y: auto; padding-right: 6px;
+}
 .job-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f8fafc; border-radius: 8px; cursor: pointer; transition: all 0.2s; border: 2px solid transparent; }
 .job-item:hover { background: #f1f5f9; }
 .job-item.selected { border-color: #3b82f6; background: #eff6ff; }

@@ -35,18 +35,42 @@ export class PerKeySerializedComponent implements OnInit {
   private apiUrl = 'http://localhost:8080/api/per-key-serialized';
 
   // Predefined jobs
+  /**
+   * The batch the page submits: 24 jobs over **six** keys.
+   *
+   * Six is a ceiling, not a round number — `keyColor` distinguishes exactly these six and falls back
+   * to slate for anything else, so a seventh key would put two indistinguishable grey blocks in the
+   * time-slot grid and destroy the one thing the grid exists to show. Add depth (more actions on a
+   * key), never a seventh key, unless the palette grows first.
+   *
+   * `#1001` carries seven actions on purpose: it is the chain a viewer follows to see serialization,
+   * and a short chain finishes before the eye has settled.
+   */
   jobs = signal<Job[]>([
+    { orderId: '#1001', action: 'validateAddress', selected: true },
+    { orderId: '#1001', action: 'checkFraud', selected: true },
     { orderId: '#1001', action: 'recalculateTotal', selected: true },
     { orderId: '#1001', action: 'reserveInventory', selected: true },
-    { orderId: '#1001', action: 'scheduleDelivery', selected: true },
     { orderId: '#1001', action: 'processPayment', selected: true },
+    { orderId: '#1001', action: 'scheduleDelivery', selected: true },
     { orderId: '#1001', action: 'sendConfirmationEmail', selected: true },
     { orderId: '#2002', action: 'recalculateTotal', selected: true },
+    { orderId: '#2002', action: 'applyDiscount', selected: true },
+    { orderId: '#2002', action: 'processPayment', selected: true },
+    { orderId: '#2002', action: 'generateInvoice', selected: true },
     { orderId: '#3003', action: 'reserveInventory', selected: true },
+    { orderId: '#3003', action: 'calculateShipping', selected: true },
+    { orderId: '#3003', action: 'scheduleDelivery', selected: true },
+    { orderId: '#3003', action: 'notifyWarehouse', selected: true },
     { orderId: '#4004', action: 'validateAddress', selected: true },
     { orderId: '#4004', action: 'calculateShipping', selected: true },
+    { orderId: '#4004', action: 'updateLoyaltyPoints', selected: true },
     { orderId: '#5005', action: 'applyDiscount', selected: true },
-    { orderId: '#6006', action: 'generateInvoice', selected: true }
+    { orderId: '#5005', action: 'recalculateTotal', selected: true },
+    { orderId: '#5005', action: 'generateInvoice', selected: true },
+    { orderId: '#6006', action: 'generateInvoice', selected: true },
+    { orderId: '#6006', action: 'sendConfirmationEmail', selected: true },
+    { orderId: '#6006', action: 'archiveOrder', selected: true }
   ]);
 
   // State

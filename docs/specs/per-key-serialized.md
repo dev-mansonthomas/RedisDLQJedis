@@ -140,6 +140,23 @@ scrolls at `max-height: 840px`, because at `MAX_SLOTS` it would otherwise be 120
 sized for a fixed-height viewer. The incoming viewer (`jobs.perkey.v1`) stays — it shows work
 *waiting*, which the grid does not.
 
+### The submitted batch (2026-08-27)
+**24 jobs over six keys**, `#1001` carrying seven actions. Two constraints shape it:
+
+- **Six keys is a hard ceiling.** `keyColor` distinguishes exactly `#1001`..`#6006` and falls back to
+  slate for anything else, so a seventh business key would put two indistinguishable grey blocks in
+  the time-slot grid and destroy the one thing the grid exists to show. **Grow the batch by adding
+  actions to an existing key, never by adding a key** — unless the palette grows first. Guarded by
+  `per-key-serialized.component.spec.ts`, which fails if any key in the batch falls back to slate.
+- **One key needs a long chain** or nothing visibly serializes: a two-job key is over before the eye
+  settles. `#1001` has seven.
+
+The job list **scrolls at `max-height: 480px`** instead of stretching: 24 items are 1509 px tall, which
+would have made the panel twice the height of the streams beside it and pushed **Submit** off the first
+screen. The button sits outside the scroll container — measured: scrolling the list to the bottom moves
+it by 0 px. The incoming viewer runs at `pageSize=30` so the whole batch is visible (`24 of 24
+messages`); the batch now fills **36 grid rows**, still `0 overlaps`.
+
 ### The refusal marker, and why it confuses readers (2026-08-27)
 Two questions came from the running page, and **neither is a bug** — both were verified in the backend
 log before being answered, and a legend under the grid now states them:
