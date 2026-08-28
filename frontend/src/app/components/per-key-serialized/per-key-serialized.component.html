@@ -40,19 +40,19 @@
     <div class="streams-section">
       <div class="streams-row">
         <div class="stream-wrapper incoming">
-          <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="5" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
+          <!-- pageSize 20, not 5: the default batch is 11 jobs and the consumer group takes the OLDEST
+               first, so a 5-row window hid every job that was about to run — including the five #1001
+               jobs that demonstrate the serialization. Same reason the DLQ page uses 20. -->
+          <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="30" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
         </div>
       </div>
-      <div class="streams-row workers">
-        <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker1.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
-        </div>
-        <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker2.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
-        </div>
-        <div class="stream-wrapper worker">
-          <app-stream-viewer stream="jobs.perkey.v1.worker3.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
-        </div>
+      <!-- The three per-worker done-stream viewers used to sit here. They and the time-slot grid were
+           two views of the same thing — work completed per worker — and the grid is the one that shows
+           the guarantee: same colour twice in a row is the failure the lock prevents. It carries over
+           what only the viewers had: each column is headed by the worker's real Redis stream name and
+           the socket's state. -->
+      <div class="streams-row lanes-row">
+        <app-per-key-lanes></app-per-key-lanes>
       </div>
     </div>
   </div>
@@ -85,7 +85,7 @@
         <div class="block-title">⚙️ 3. Worker Processing</div>
         <div class="block-code">
           <div class="code-line">msg = <span class="function">XREADGROUP</span> jobs.perkey.v1</div>
-          <div class="code-line"><span class="function">Thread.sleep</span>(4000) <span class="comment">// 4s processing</span></div>
+          <div class="code-line"><span class="function">Thread.sleep</span>(2700) <span class="comment">// 2.7s processing</span></div>
           <div class="code-line"><span class="function">XADD</span> jobs.perkey.v1.workerN.done * ...</div>
           <div class="code-line"><span class="function">XACK</span> jobs.perkey.v1</div>
           <div class="code-line"><span class="function">DEL</span> running:order:&lt;orderId&gt; <span class="comment">// Release lock</span></div>

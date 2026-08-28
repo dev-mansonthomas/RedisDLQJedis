@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PerKeySerializedIntegrationTest extends AbstractRedisIntegrationTest {
 
     /** Matches {@code PerKeySerializedService.PROCESSING_SLEEP_MS}. */
-    private static final long WORK_MS = 4_000;
+    private static final long WORK_MS = 2_700;
     private static final int WORKERS = 3;
 
     private JedisPool servicePool;
@@ -87,6 +87,70 @@ class PerKeySerializedIntegrationTest extends AbstractRedisIntegrationTest {
                     + "overlapping is exactly what the lock exists to prevent", i, i - 1)
                 .isGreaterThan(WORK_MS - 500);
         }
+    }
+
+    @Test
+    void aSameKeyJobStartsPromptlyAfterTheOneBeforeIt() throws Exception {
+        // Serialized must not mean slow. Every deferral used to cost RECLAIM_MIN_IDLE_MS: a job whose
+        // key was busy sat in a PEL, its idle timer reset by the very claim that refused it, so the
+        // next attempt came a full reclaim window later. Observed on the page as 10s of dead grid
+        // between processPayment and sendConfirmationEmail on one key, with all three workers idle.
+        submit("ORDER-2", "validate", "charge", "ship");
+
+        awaitTrue(() -> doneCount() == 3, Duration.ofSeconds(90), "the three same-key jobs to finish");
+
+        List<Instant> finished = completionInstants();
+        for (int i = 1; i < finished.size(); i++) {
+            long gapMs = Duration.between(finished.get(i - 1), finished.get(i)).toMillis();
+            assertThat(gapMs)
+                .as("completion %d follows %d by roughly one processing window, not by a reclaim "
+                    + "window: the next job on a freed key must be picked up promptly", i, i - 1)
+                .isLessThan(WORK_MS + 3_000);
+        }
+    }
+
+    @Test
+    void oneSaturatedKeyIsNeverProcessedTwiceEvenThoughMinIdleIsBelowTheWorkTime() throws Exception {
+        // RECLAIM_MIN_IDLE_MS is deliberately SHORTER than PROCESSING_SLEEP_MS in this pattern, which
+        // would duplicate work in any claim-based pattern that had no lock. Here the SET NX is the
+        // guard: a worker that claims a message whose key is held is refused and drops it back. Six
+        // jobs on one key against three workers is that configuration at its worst.
+        submit("ORDER-SAT", "a", "b", "c", "d", "e", "f");
+
+        awaitTrue(() -> doneCount() == 6, Duration.ofSeconds(120), "all six same-key jobs to finish");
+        Thread.sleep(3_000); // give a late duplicate every chance to appear
+
+        List<String> jobs = doneEntries().stream()
+            .map(f -> f.get("orderId") + "/" + f.get("action"))
+            .toList();
+        assertThat(jobs).doesNotHaveDuplicates();
+        assertThat(jobs).hasSize(6);
+    }
+
+    @Test
+    void anInFlightJobIsNotReRunByAnIdleWorkerWhoseClaimBeatsTheWorkTime() throws Exception {
+        // THE test that justifies RECLAIM_MIN_IDLE_MS being shorter than PROCESSING_SLEEP_MS.
+        //
+        // One job, three workers: while worker A sleeps through its 2.7s of work, the entry sits in
+        // the PEL and its idle time crosses the 1s threshold, and the other two workers have nothing
+        // else to do. So one of them WILL claim a job that is still running — the exact move that
+        // duplicated 120 jobs in the Work Queue. Here the SET NX refuses it.
+        //
+        // Verified to have teeth: with `.nx()` removed from the lock, this fails with two done
+        // entries for one submitted job. The saturation test above does NOT catch that — six jobs on
+        // three workers keeps every worker busy, so no idle worker is ever there to steal one.
+        submit("ORDER-SOLO", "validate");
+
+        awaitTrue(() -> doneCount() >= 1, Duration.ofSeconds(30), "the single job to finish");
+        Thread.sleep(4_000); // longer than the work time: a stolen copy would land in here
+
+        List<String> jobs = doneEntries().stream()
+            .map(f -> f.get("orderId") + "/" + f.get("action"))
+            .toList();
+        assertThat(jobs)
+            .as("one submitted job, one completion: an early claim must be refused by the lock, "
+                + "not processed a second time")
+            .containsExactly("ORDER-SOLO/validate");
     }
 
     @Test

@@ -221,13 +221,24 @@ These are about what a prospect *sees*. They are feature work, not defects, exce
   Verified in a browser end to end: both reason strings on the DLQ side, `⏱ timeout` and
   `⚡ explicit fail` badges on the source side, banner still visible at 9 s and gone by 11 s, dialog
   opening with Cancel focused and closing on Escape, 0 console errors.
-- 🟠 **Per-Key Serialized: the guarantee does not jump out.** The whole promise is that two
-  jobs for the *same* key never run concurrently while different keys do run in parallel — and the
-  current view does not make that visible. → Render **one time-slot lane per worker**, so a viewer can
-  scan a lane and see a single key `XXXX` occupying it at a time, never two. The moment that lands, the
-  pattern explains itself. Note this is also the pattern whose `minIdle` safety margin was never
-  audited (see the claim-based duplication item above) — the lanes would *show* a duplicate run, making
-  the diagram double as a correctness check.
+- ✅ **Per-Key Serialized: the guarantee now jumps out** — *done 2026-08-25*. `PerKeyLanesComponent`
+  renders one row per second and one column per worker, each cell tinted by key, so two cells of the
+  same colour in one row is the failure the lock exists to prevent. Judgement is **interval overlap**
+  in `slot-model.ts` (16 pure-function tests, no clock), never slot collision; occupancy travels on a
+  new `PerKeySlotEvent` (`STARTED` / `FINISHED` / `LOCK_SKIPPED`) emitted from
+  `PerKeySerializedService.processEntry`, with `STARTED` **before** the 4s sleep so a running job is
+  visible while it runs. Measured walkthrough and full acceptance table in
+  `docs/specs/per-key-serialized.md`: 0 rows with a repeated colour, 10 of 40 rows with more than one
+  worker busy, 11 refusal markers, `0 overlaps`, clean console.
+  **The detector was proven able to fail — and the plan's recipe for it was wrong.** Lowering
+  `RECLAIM_MIN_IDLE_MS` below the processing time does not breach *this* pattern: the early claimant
+  meets a live lock and is refused, which is the pattern working. `LOCK_TTL_MS` has to drop below the
+  work time too, so the holder's lock expires mid-work and a peer legitimately acquires it. At
+  1000 ms each against 4000 ms of work the grid showed `1 overlap` and four red rows; both constants
+  are back at 30000 / 10000 and the re-run returned to `0 overlaps`. So the grid *does* double as a
+  correctness check for the failure mode that shipped 120 duplicated jobs in the Work Queue — and on
+  that same breached run a slot-collision detector flagged 5 rows where interval judgement flagged 4,
+  the two extras being legitimate hand-offs inside one second.
 - 🟡 **LLM Chat: token-by-token streaming reported as invisible on long replies** — the text
   is said to arrive as one block after a wait, while the token counter climbs.
   **Not reproducible — closed 2026-08-25 after a four-case sweep**, and the earlier 2026-08-21

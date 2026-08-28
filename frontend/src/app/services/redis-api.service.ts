@@ -22,7 +22,10 @@ export interface MessagesResponse {
   success: boolean;
   streamName: string;
   messages: StreamEntry[];
+  /** Size of the returned page — capped by the requested `count`, so it cannot reveal truncation. */
   count: number;
+  /** The stream's own XLEN. Absent on older backends; callers must fall back to `count`. */
+  streamLength?: number;
 }
 
 export interface NextMessageResponse {

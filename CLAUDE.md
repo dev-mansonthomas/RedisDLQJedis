@@ -41,17 +41,17 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   **0 errors, 0 warnings** across both files — measured 2026-08-25.
-- **Backend tests:** `mvn clean test` — **139 tests, all 12 patterns covered**. Integration tests use a
+- **Backend tests:** `mvn clean test` — **151 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
   run. **The suite takes ~4 minutes**; that is not a hang: `TokenBucketIntegrationTest` (117s) and
-  `PerKeySerializedIntegrationTest` (50s) assert timing-based guarantees against the services' real
+  `PerKeySerializedIntegrationTest` (60s) assert timing-based guarantees against the services' real
   4–10s simulated work. Writing a new pattern test? Two traps: (1) `mvn test` without `clean` fails
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **57 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **110 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -62,6 +62,12 @@ observability over hardening.
   3. **`vi.useFakeTimers()` freezes Angular's scheduler**: signals update, the DOM stays stale, every
      case fails for the wrong reason.
   4. **jsdom has no WebSocket** — always inject `WebSocketServiceStub`, never let a spec build SockJS.
+  5. **Never assert "the view grew after waiting N ms" for a component with a recurring tick.** Wall
+     time does pass in these specs (`Date.now()` advances normally — measured), but the tick's phase is
+     fixed at component *init*, not at the event under test, so waiting one interval can advance the
+     clock by less than one interval (measured: 948 ms after a 1300 ms wait). Assert the rendered
+     *rule* (`data-clock` on `per-key-lanes`) instead; a *frozen* clock is the only exact direction,
+     because nothing may advance at all.
 - **CI:** `.github/workflows/ci.yml` — three jobs on every PR and every push to `main`: **backend**
   (Java 21, `mvn clean test`, then a gate that **fails if any test was skipped**), **frontend**
   (`npm ci` → lint → `npm test` → build → `npm audit --audit-level=moderate`), **lua** (`luacheck`,
@@ -75,7 +81,11 @@ observability over hardening.
   associated with its control (a caption that labels a *group* is a `<span class="group-label">`, not a
   label), clickable non-button elements carry `role`/`tabindex`/`keydown`, and **components are
   `ChangeDetectionStrategy.OnPush`** — put mutable template state in a `signal()`, and **replace** its
-  value rather than mutating it in place, or the view will not refresh. Guarded by
+  value rather than mutating it in place, or the view will not refresh. **Never put a backtick inside
+  an inline `template:` or `styles: [...]` block** — not even in a CSS comment quoting a class name: it
+  ends the template literal, and `npm run lint` passes while `npm test` dies in the Angular compiler
+  with `isStringArrayOrDie` / `parseDirectiveStyles` and no line number (cost one debug cycle
+  2026-08-27). Guarded by
   `pubsub-subscriber.component.spec.ts`, `llm-chat.component.spec.ts` and
   `dlq-narration.component.spec.ts`; all three were verified by injecting the bug and watching them go
   red (the narration one fails 7 cases, 5 of them DOM assertions). Note the failure only shows when *no* other signal is
@@ -109,7 +119,7 @@ observability over hardening.
 | `/pubsub-topic-routing` | Topic Routing (Pub/Sub) | `PSUBSCRIBE` patterns | `order.<region>.<event>` |
 | `/content-routing` | Content-Based Routing | Streams + amount thresholds | `payments.incoming.v1` → tiers |
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
-| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key | `jobs.perkey.v1`, `running:order:{id}` |
+| `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key; **time-slot grid** (`PerKeyLanesComponent`): one row per second × one column per worker, cell tinted by key, so two cells of the same colour in a row is the breach. Fed by **`PerKeySlotEvent`** (`STARTED` before the 2.7s sleep / `FINISHED` / `LOCK_SKIPPED`); violations judged on **interval overlap** in `slot-model.ts`, never slot collision; each cell names its **action** beside the key and **stamps `mm:ss.SSS`** at the run's boundaries (`▸` start, `▪` end, once each — never the extrapolated end of an open run, which is a guess), because at one-second resolution a same-key hand-off is indistinguishable from a breach: measured 14 ms between one job's end and the next job's start on `#1001` in the same slot, and the **clock only ticks while a job is in flight** (`data-clock` / `▶ live` vs `⏸ stopped`) so an idle page stops growing rows. **`Clear All` calls `PerKeyLanesComponent.reset()`** via `@ViewChild` — the grid is live-only and has no stream to reload from, so nothing else would clear it and the old timeline would hang over an empty keyspace. **The grid replaced the three per-worker done-stream viewers** (2026-08-27) — two views of the same thing, and only the grid shows the guarantee; it inherited their column headers, so each column is titled with the real stream name (`jobs.perkey.v1.worker{N}.done`) over a live socket indicator. Only the incoming viewer (`jobs.perkey.v1`) remains, at `pageSize=30` to cover the **24-job / 6-key** batch. **Six keys is a ceiling, not a round number** — `keyColor` distinguishes exactly six and falls back to slate, so a seventh key puts two indistinguishable grey blocks in the grid; add actions to a key, never a seventh key | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
 | `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010); **conversation persists across page reload** (frontend keeps the cid in `localStorage` → `chat:{cid}` is the source of truth) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
 
@@ -126,8 +136,21 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   entries while the group delivers the **oldest** first, so once a stream exceeds the window the next
   message to be processed is off-screen and a Process click looks like a no-op. Nothing is unreachable
   — 12 ACKs did consume all 12 of 12 messages — but the feedback is invisible. `stream-viewer` has **no
-  pagination** (the `.more-messages` line never had a click handler); the DLQ page therefore uses
-  `pageSize=20`, and that line now states the ordering instead of pretending to be a control.
+  pagination** (the `.more-messages` line never had a click handler); the DLQ page and **all four**
+  Per-Key viewers therefore use `pageSize=20`, and that line now states the ordering instead of
+  pretending to be a control. A done stream only ever grows, so a 5-row window there truncated as
+  soon as a worker had handled six jobs, hiding the *earliest* — where a key's serialization starts.
+- **`/dlq/messages` returns `streamLength` (the real `XLEN`) beside `count` (the size of the page), and
+  the viewer counts against the former.** `count` is capped by the requested page size, so a window
+  holding 5 of 11 entries reported 5 and the footer read **"5 of 5 messages"** — the truncation was
+  not merely unpaginated, it was *denied*. `hasMoreMessages` was stored derived state, initialised
+  `false` on load ("we don't know the total yet") and only flipped true when a live event pushed a row
+  off the bottom, so a stream already longer than the window when the page opened never showed the
+  "older entries not shown" line at all. It is now a **getter** over `totalMessages >
+  displayedMessages.length`; derived state that cannot go stale. Found on `/per-key-serialized`
+  2026-08-25, where the hidden entries were the five `#1001` jobs the page exists to demonstrate.
+  Guarded by `DLQMessagesTruncationTest` and `stream-viewer-truncation.component.spec.ts`. Any new
+  caller of `getMessages` must treat `streamLength` as **optional** and fall back to `count`.
 - **`MESSAGE_ACKED` / `MESSAGE_PROCESSED` vs `MESSAGE_DELETED`.** There is **no `XDEL` anywhere in this codebase**: a
   worker finishing a message `XACK`s it and the entry stays in the stream. Workers therefore emit
   **`MESSAGE_ACKED`**, and `stream-viewer` marks the row (dimmed + `acked` badge) without touching
@@ -145,6 +168,19 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   healthy main-stream entry as dead-lettered. Guarded by `stream-viewer.component.spec.ts`. Note the
   blog post `blog/dlq-redis-streams` quotes this Lua function but is published against the pinned tag
   `blog-dlq-v1`, so readers are unaffected until it is re-tagged.
+- **Per-key worker occupancy travels on `PerKeySlotEvent`, not `DLQEvent`** — a fourth
+  `WebSocketEventService.broadcastEvent` overload, `eventType` always `PER_KEY_SLOT`. `DLQEvent` is
+  consumed by `stream-viewer` on all twelve pages and its payload (payload / deliveryCount /
+  failureKind) says nothing about which worker holds which key; same precedent as `PubSubEvent`. Its
+  `atMs` is **epoch millis, not a formatted timestamp**, because the grid does arithmetic on it — slot
+  binning and interval comparison. Two rules the model exists to enforce: a violation is **overlap of
+  two runs' `[start, end)` intervals on one key**, never two cells landing in the same slot (measured
+  2026-08-25: on a deliberately breached run, slot collision flagged 5 rows where interval judgement
+  flagged 4 — the extras were hand-offs inside one second), and an interval **floors at one slot**, or
+  a job whose `STARTED` is the newest event has zero width, paints no cell and overlaps nothing.
+  **Breaching this pattern on purpose needs `LOCK_TTL_MS` below the work time, not just
+  `RECLAIM_MIN_IDLE_MS`** — an early claimant meeting a live lock is refused, which is the pattern
+  working.
 - **`DLQEvent.failureKind`** (`TIMEOUT` / `EXPLICIT_FAIL` / `POISON` / `RELEASED`) is the typed way to
   ask how an attempt failed — do not string-match `details`. Only `TIMEOUT` and `EXPLICIT_FAIL` get a
   row badge; the other two are already rendered from the delivery counter.
@@ -167,6 +203,24 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   Bucket's margin is thinner than the rule of thumb (`RECLAIM_MIN_IDLE_MS` 15s vs 10s for a CSV job =
   1.5x, not 2x) — it holds because it still exceeds the work time, so treat those two constants as
   coupled. The **LLM Chat sweeper remains unaudited** — see `docs/TODO.md`.
+- **Per-Key Serialized is the one deliberate exception to that rule** (2026-08-26): `RECLAIM_MIN_IDLE_MS`
+  is **1000 ms against 2700 ms of work**, i.e. *shorter*. It is safe **only** because in this pattern
+  minIdle is not what prevents a second run — the **per-key `SET NX` lock is**. A worker that claims a
+  message whose key is still held fails the lock and drops it back untouched, so an early claim costs
+  one refused round trip instead of a duplicate. The lock cannot lapse mid-job either (TTL 30s vs 2.7s
+  of work). **Do not copy this inversion into a pattern that has no lock.**
+  It was 10000 ms, and that was the demo's worst flaw: a job whose key was busy had its idle timer
+  reset by the very claim that refused it, so the next attempt came a whole reclaim window later —
+  **10s of dead grid between two jobs on one key with all three workers idle** (measured 10324 ms
+  between consecutive same-key completions; now ~4.2s = work + minIdle + poll). The default batch went
+  from **46 rows to 16**. Cost: contended entries are claimed and refused about once a second per
+  worker, so the grid shows more `⊘` markers — that is the mechanism, not noise.
+  **Two tests, and only one of them has teeth:**
+  `anInFlightJobIsNotReRunByAnIdleWorkerWhoseClaimBeatsTheWorkTime` submits **one** job so two workers
+  are idle while it runs — with `.nx()` removed it fails with **three** completions for one job.
+  `oneSaturatedKeyIsNeverProcessedTwiceEvenThoughMinIdleIsBelowTheWorkTime` (6 jobs / 3 workers)
+  **passes even with the lock removed**, because every worker is busy in lockstep and no idle worker is
+  ever there to steal one. Saturation is the wrong shape for this risk; an idle worker is the right one.
 - **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
   Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
   corrupted classes (`ClassFormatError: Truncated class file`).

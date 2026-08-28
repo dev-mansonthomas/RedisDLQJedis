@@ -36,8 +36,23 @@ export interface PubSubEvent {
   timestamp?: string;
 }
 
+/**
+ * Per-Key Serialized slot events (backend `PerKeySlotEvent`). One state change of one worker:
+ * `atMs` is epoch millis because the grid does arithmetic on it (slot binning, interval overlap),
+ * which a formatted local time could not support.
+ */
+export interface PerKeySlotEvent {
+  eventType: string;
+  phase: 'STARTED' | 'FINISHED' | 'LOCK_SKIPPED';
+  workerId: number;
+  orderId: string;
+  action: string;
+  messageId: string;
+  atMs: number;
+}
+
 /** Anything the backend can push down the socket. */
-export type StreamEvent = DLQEvent | PubSubEvent;
+export type StreamEvent = DLQEvent | PubSubEvent | PerKeySlotEvent;
 
 /**
  * WebSocket service for real-time communication with Spring Boot backend.
