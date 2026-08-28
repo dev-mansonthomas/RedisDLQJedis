@@ -301,6 +301,27 @@ export class PerKeyLanesComponent implements OnInit, OnDestroy {
     }, SLOT_MS);
   }
 
+  /**
+   * Drops the whole timeline and returns to the empty state.
+   *
+   * Called by the page when **Clear All** succeeds. The grid is live-only — no stream to reload from,
+   * unlike the viewers beside it — so if nothing resets it, the old timeline keeps hanging over an
+   * empty Redis, which is the one thing worse than showing nothing.
+   *
+   * The anchor goes back to null on purpose: keeping it would re-open the grid hundreds of empty rows
+   * after the old start as soon as the next event arrived.
+   *
+   * Deliberately not wired to `StreamRefreshService.refresh$` (which `stream-viewer` does use): that
+   * signal means "cleared **or** needs reloading", and a reload is harmless for a viewer while a reset
+   * destroys history here. An explicit call says what it does.
+   */
+  reset(): void {
+    this.runs.set([]);
+    this.skips.set([]);
+    this.anchorMs.set(null);
+    this.nowMs.set(0);
+  }
+
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
     this.statusSubscription?.unsubscribe();

@@ -60,6 +60,25 @@ describe('PerKeySerializedComponent — the submitted batch', () => {
     expect(jobs.every(j => j.selected)).toBe(true);
   });
 
+  it('Clear All wipes the time-slot grid, not just the Redis streams', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    const socket = TestBed.inject(WebSocketService) as unknown as WebSocketServiceStub;
+    const http = TestBed.inject(HttpTestingController);
+
+    socket.emit({ eventType: 'PER_KEY_SLOT', phase: 'STARTED', action: 'validateAddress',
+      workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 });
+    await settle();
+    expect(host.querySelectorAll('app-per-key-lanes .lane-row').length).toBeGreaterThan(0);
+
+    (host.querySelector('.btn-clear') as HTMLButtonElement).click();
+    http.expectOne(r => r.method === 'DELETE').flush({ success: true });
+    await settle();
+
+    // The grid is live-only: nothing reloads it, so if the click does not reset it the old timeline
+    // stays on screen over an empty Redis.
+    expect(host.querySelector('app-per-key-lanes .lane-row')).toBeNull();
+  });
+
   it('renders every job in a list that scrolls instead of stretching the page', () => {
     const host = fixture.nativeElement as HTMLElement;
     const list = host.querySelector('.jobs-list')!;

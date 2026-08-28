@@ -219,6 +219,38 @@ describe('PerKeyLanesComponent', () => {
     expect(host().querySelectorAll('.stamp-end')).toHaveLength(1);
   });
 
+  it('reset() empties the grid and returns it to its empty state', async () => {
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    socket.emit(slot('FINISHED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_002_700 }));
+    socket.emit(slot('LOCK_SKIPPED', { workerId: 2, orderId: '#1001', messageId: 'm2', atMs: 1_001_000 }));
+    await settle();
+    expect(host().querySelectorAll('.lane-row').length).toBeGreaterThan(0);
+
+    fixture.componentInstance.reset();
+    await settle();
+
+    expect(host().querySelector('.lane-row')).toBeNull();
+    expect(host().querySelector('.skip-marker')).toBeNull();
+    expect(host().textContent).toContain('Submit jobs');
+    expect(host().textContent).toContain('0 overlaps');
+    expect(host().querySelector('.lanes')!.getAttribute('data-clock')).toBe('stopped');
+  });
+
+  it('re-anchors on the next event after a reset, instead of resuming the old timeline', async () => {
+    socket.emit(slot('STARTED', { workerId: 1, orderId: '#1001', messageId: 'm1', atMs: 1_000_000 }));
+    await settle();
+    fixture.componentInstance.reset();
+    await settle();
+
+    // A later timestamp must not produce hundreds of empty rows back to the old anchor.
+    socket.emit(slot('STARTED', { workerId: 3, orderId: '#2002', messageId: 'm9', atMs: 1_600_000 }));
+    await settle();
+
+    expect(host().querySelectorAll('.lane-row')).toHaveLength(1);
+    // `.lane-row .slot-label`, not `.slot-label`: the first one in the DOM is the header's spacer.
+    expect(host().querySelector('.lane-row .slot-label')!.textContent).toContain('t+0s');
+  });
+
   it('tolerates a FINISHED whose STARTED was never seen', async () => {
     // The page can be opened mid-run. Dropping the event would lose a completed job entirely.
     socket.emit(slot('FINISHED', { workerId: 1, orderId: '#2002', messageId: 'm9', atMs: 1_000_000 }));

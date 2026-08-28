@@ -157,6 +157,30 @@ screen. The button sits outside the scroll container — measured: scrolling the
 it by 0 px. The incoming viewer runs at `pageSize=30` so the whole batch is visible (`24 of 24
 messages`); the batch now fills **36 grid rows**, still `0 overlaps`.
 
+### Clear All resets the grid (2026-08-28)
+`clearAll()` deletes the Redis streams, and the viewers reload themselves from Redis on
+`StreamRefreshService.refresh$`. **The grid cannot** — it is built from live socket events and has no
+source to re-read — so without an explicit reset the old timeline hangs over an empty keyspace, which
+is worse than showing nothing. The page therefore holds the grid via `@ViewChild` and calls
+`PerKeyLanesComponent.reset()` in the success handler, next to `triggerRefresh()`.
+
+**Not wired to `refresh$`**, though `stream-viewer` is: that signal means "cleared *or* needs
+reloading", and a spurious reload costs a viewer nothing while a spurious reset destroys the grid's
+only copy of its history. `reset()` also returns `anchorMs` to null — keeping it would re-open the grid
+hundreds of empty rows past the old start as soon as the next event arrived.
+
+**Measured, both cases:**
+
+| When Clear All is clicked | Result |
+|---|---|
+| After the batch has drained | **38 rows → 0**, empty state shown, `0 overlaps`, viewer `0 of 0` |
+| While workers are still draining | 12 rows → **1 blank row** (`[".",".","."]`, no skips) |
+
+That single row in the second case is *not* stale state: a job already in flight reports its `FINISHED`
+after the clear, its `STARTED` having been wiped, so the run has an unknown start, renders no cell, and
+only re-anchors the timeline. Truthful, if odd-looking. Making it informative would mean rendering
+`FINISHED`-only runs at their end stamp — a separate change, not done here.
+
 ### Millisecond stamps at the run boundaries (2026-08-27)
 A row is one second wide, and the jobs inside it are not. So two cells of the same colour in one row —
 reported as a *chevauchement* on `#1001` at `T+2s` — look exactly like the breach the grid exists to

@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, ViewChild, signal, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -28,6 +28,9 @@ interface SubmitJobsResponse {
   styleUrl: './per-key-serialized.component.scss'
 })
 export class PerKeySerializedComponent implements OnInit {
+  /** The time-slot grid, so `clearAll` can wipe it along with the streams. */
+  @ViewChild(PerKeyLanesComponent) private lanes?: PerKeyLanesComponent;
+
   private http = inject(HttpClient);
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
@@ -127,6 +130,10 @@ export class PerKeySerializedComponent implements OnInit {
       next: () => {
         this.submitMessage.set('✅ All streams cleared');
         this.refreshService.triggerRefresh();
+        // The viewers reload themselves from Redis on that refresh; the grid cannot — it is built
+        // from live socket events and has no source to re-read. Without this it would keep showing
+        // the old timeline over an empty keyspace.
+        this.lanes?.reset();
         this.cdr.markForCheck();
         setTimeout(() => { this.submitMessage.set(''); this.cdr.markForCheck(); }, 2000);
       },
