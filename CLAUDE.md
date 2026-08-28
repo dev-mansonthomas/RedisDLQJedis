@@ -73,7 +73,14 @@ observability over hardening.
   (`npm ci` → lint → `npm test` → build → `npm audit --audit-level=moderate`), **lua** (`luacheck`,
   zero warnings tolerated). The skip gate is the point: the Redis integration tests *assume themselves
   away* without Docker, so a runner without it would go green having tested almost nothing. It also
-  floors the total at 100 tests — raise that floor deliberately, never lower it by accident. Not
+  floors the total at **145** tests (raised 2026-08-28 with the suite at 151) — the floor catches tests
+  vanishing *silently*, which the skip gate cannot see because a test that never ran is not a skipped
+  test. Raise it deliberately as the suite grows, never lower it by accident. **Job names carry no test
+  count**, and cannot: `jobs.<id>.name` is resolved before the job runs (contexts `github`/`needs`/
+  `strategy`/`matrix`/`vars`/`inputs` only), so any number in it is a stale claim waiting to happen —
+  that one said `139` for two suite growths. The real count is written at runtime to
+  `$GITHUB_STEP_SUMMARY` and to the step's outputs. Distinguish the two kinds of number: a
+  **description** must state no volatile fact, a **contract** (the floor) is hardcoded on purpose. Not
   covered: the browser-mode layout rule (slice C of the frontend-test-runner spec) and the 12-page
   browser walkthrough, both still manual.
 - **Lint:** `cd frontend && npm run lint` → **0 errors** (was 145 under angular-eslint 22). Keep it
