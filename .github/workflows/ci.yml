@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (Java 21, 139 tests incl. real Redis)
+    name: Backend (Java 21, real Redis)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,10 +48,23 @@ jobs:
       - name: mvn clean test
         run: mvn -B -ntp clean test
 
-      - name: No test may be skipped
+      # A job's `name` is resolved before the job runs — its contexts are github/needs/strategy/
+      # matrix/vars/inputs only — so it can never carry the test count. Descriptions therefore state
+      # no volatile fact; the count is reported at runtime, into the job summary. The FLOOR below is
+      # the opposite kind of number: a contract, hardcoded on purpose.
+      - name: No test may be skipped, and none may vanish
+        id: test-gate
         run: |
           python3 - <<'PY'
           import glob, sys, xml.etree.ElementTree as ET
+
+          # A contract, not a description: hardcoded on purpose, and raised by hand. Last raised
+          # 2026-08-28 with the suite at 151. It catches tests vanishing *silently* — a class
+          # surefire stopped picking up, a stray -Dtest= — which the skip gate cannot see, because a
+          # test that never ran is not a skipped test. A floor that updated itself would ratchet
+          # down and guard nothing.
+          FLOOR = 145
+
           files = glob.glob('target/surefire-reports/TEST-*.xml')
           if not files:
               sys.exit('No surefire reports: the suite did not run at all.')
@@ -65,14 +78,27 @@ jobs:
               skipped += skip
               if skip:
                   offenders.append(f"{root.get('name')}: {skip}/{ran} skipped")
-          print(f"{total} tests, {skipped} skipped, across {len(files)} classes")
+          summary = f"{total} tests, {skipped} skipped, across {len(files)} classes"
+          print(summary)
+
+          # Report it where it stays true without anyone editing a label. Both files are absent when
+          # this script is run outside Actions (it is extracted and run locally to check the gate),
+          # so writing is conditional rather than assumed.
+          import os
+          for var, line in (("GITHUB_STEP_SUMMARY", f"### Backend suite\n\n{summary}, floor {FLOOR}\n"),
+                            ("GITHUB_OUTPUT", f"total={total}\nskipped={skipped}\n")):
+              path = os.environ.get(var)
+              if path:
+                  with open(path, "a") as fh:
+                      fh.write(line)
           if skipped:
               sys.exit("Skipped tests mean Docker was missing and the Redis integration tests "
                        "assumed themselves away — that is not a green run:\n  "
                        + "\n  ".join(offenders))
-          if total < 100:
-              sys.exit(f"Only {total} tests ran; the suite was 139 when this gate was written. "
-                       "Raise this floor deliberately, do not lower it by accident.")
+          if total < FLOOR:
+              sys.exit(f"Only {total} tests ran, below the floor of {FLOOR}; the suite was 151 when "
+                       "that floor was last raised. Raise this floor deliberately when the suite "
+                       "grows, and never lower it by accident.")
           PY
 
   frontend:
