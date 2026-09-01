@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { DlqAction, DlqScenarioService } from '../../services/dlq-scenario.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
+import { API_BASE } from '../../api.config';
 
 /**
  * Component for processing DLQ messages with success or failure simulation.
@@ -281,7 +282,7 @@ export class DlqActionsComponent implements OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   private scenarios = inject(DlqScenarioService);
-  private apiUrl = 'http://localhost:8080/api/dlq';
+  private apiUrl = `${API_BASE}/dlq`;
 
   isProcessing = signal(false);
   statusMessage = signal('');

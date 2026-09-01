@@ -21,7 +21,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/request-reply")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class RequestReplyController {
 
     private final RequestReplyService requestReplyService;

@@ -6,6 +6,7 @@ import { WebSocketService, PubSubEvent } from '../../services/websocket.service'
 import { Subscription } from 'rxjs';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface PatternSubscriber {
   name: string;
@@ -38,7 +39,7 @@ export class PubsubTopicRoutingComponent implements OnInit, OnDestroy {
   private wsService = inject(WebSocketService);
   private cdr = inject(ChangeDetectorRef);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/pubsub-topic-routing';
+  private apiUrl = `${API_BASE}/pubsub-topic-routing`;
   private subscription?: Subscription;
   private wsStatusSub?: Subscription;
 

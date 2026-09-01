@@ -14,7 +14,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/per-key-serialized")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class PerKeySerializedController {
 
     private final PerKeySerializedService service;

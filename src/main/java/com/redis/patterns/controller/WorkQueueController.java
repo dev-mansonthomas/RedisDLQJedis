@@ -27,7 +27,6 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/work-queue")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class WorkQueueController {
 
     private final WorkQueueService workQueueService;

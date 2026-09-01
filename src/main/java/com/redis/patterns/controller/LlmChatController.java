@@ -29,8 +29,8 @@ import java.util.Map;
 /**
  * REST API for the LLM Chat pattern (#12). All paths sit under the {@code /api} context path.
  *
- * <p>CORS is governed by the application-wide allow-list ({@code CorsConfig}); this controller adds
- * no per-endpoint {@code @CrossOrigin} wildcard.
+ * <p>CORS is governed by the application-wide allow-list ({@code CorsConfig}); no controller in
+ * this project carries a per-endpoint {@code @CrossOrigin} wildcard.
  */
 @Slf4j
 @RestController

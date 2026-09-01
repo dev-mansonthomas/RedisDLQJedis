@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { API_BASE } from '../api.config';
 
 export interface StreamEntry {
   id: string;
@@ -41,7 +42,7 @@ export interface NextMessageResponse {
 })
 export class RedisApiService {
   private http = inject(HttpClient);
-  private baseUrl = 'http://localhost:8080/api/dlq';
+  private baseUrl = `${API_BASE}/dlq`;
 
   /**
    * Get stream statistics

@@ -18,7 +18,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/scheduled-messages")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class ScheduledMessagesController {
 
     private final ScheduledMessagesService scheduledMessagesService;

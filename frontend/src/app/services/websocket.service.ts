@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
-import { Subject, Observable } from 'rxjs';
+import { BehaviorSubject, Subject, Observable } from 'rxjs';
 import SockJS from 'sockjs-client';
+import { API_BASE } from '../api.config';
 
 export interface StreamMessage {
   id: string;
@@ -65,7 +66,14 @@ export class WebSocketService {
   // SockJS does not implement the WebSocket interface fully, so use its own instance type.
   private socket: InstanceType<typeof SockJS> | null = null;
   private eventSubject = new Subject<StreamEvent>();
-  private connectionStatus = new Subject<boolean>();
+  /**
+   * `BehaviorSubject`, not `Subject`: this service is a root singleton, so its socket outlives a
+   * route change. A plain Subject emits only on a *transition*, so any component created after the
+   * socket opened — i.e. anything reached by SPA navigation rather than a page load — subscribed to a
+   * source that would never speak again and rendered "Disconnected" for good. `per-key-lanes` showed
+   * exactly that on its three column badges. Late subscribers must be told the current state.
+   */
+  private connectionStatus = new BehaviorSubject<boolean>(false);
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 1000; // keep retrying; a demo left open shouldn't silently go dead
   private reconnectDelay = 3000;
@@ -91,7 +99,7 @@ export class WebSocketService {
 
     this.isConnecting = true;
     // Spring Boot context path is /api, so WebSocket endpoint is /api/ws/dlq-events
-    const url = `http://localhost:8080/api${endpoint}`;
+    const url = `${API_BASE}${endpoint}`;
 
     try {
       // Use SockJS for better compatibility

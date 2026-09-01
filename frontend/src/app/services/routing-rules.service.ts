@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { API_BASE } from '../api.config';
 
 export interface RoutingRule {
   id: string;
@@ -44,7 +45,7 @@ export interface RuleResponse {
 })
 export class RoutingRulesService {
   private http = inject(HttpClient);
-  private baseUrl = 'http://localhost:8080/api/routing-rules';
+  private baseUrl = `${API_BASE}/routing-rules`;
 
   /**
    * Get all routing rules for an exchange stream.

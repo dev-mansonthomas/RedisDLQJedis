@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { HttpClient } from '@angular/common/http';
 
 import { DlqAction, DlqScenarioService } from '../../services/dlq-scenario.service';
+import { API_BASE } from '../../api.config';
 
 /** One step of a scenario, satisfied once its action has been clicked `target` times. */
 interface StepDef {
@@ -377,7 +378,7 @@ const FALLBACK_MAX_DELIVERIES = 2;
 export class DlqNarrationComponent {
   private readonly http = inject(HttpClient);
   private readonly scenarios = inject(DlqScenarioService);
-  private readonly apiUrl = 'http://localhost:8080/api/dlq';
+  private readonly apiUrl = `${API_BASE}/dlq`;
 
   /**
    * Retry budget read from the backend, so the step counts match the value the config panel actually

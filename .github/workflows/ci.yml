@@ -63,7 +63,7 @@ jobs:
           # surefire stopped picking up, a stray -Dtest= — which the skip gate cannot see, because a
           # test that never ran is not a skipped test. A floor that updated itself would ratchet
           # down and guard nothing.
-          FLOOR = 145
+          FLOOR = 154
 
           files = glob.glob('target/surefire-reports/TEST-*.xml')
           if not files:
@@ -96,7 +96,7 @@ jobs:
                        "assumed themselves away — that is not a green run:\n  "
                        + "\n  ".join(offenders))
           if total < FLOOR:
-              sys.exit(f"Only {total} tests ran, below the floor of {FLOOR}; the suite was 151 when "
+              sys.exit(f"Only {total} tests ran, below the floor of {FLOOR}; the suite was 160 when "
                        "that floor was last raised. Raise this floor deliberately when the suite "
                        "grows, and never lower it by accident.")
           PY

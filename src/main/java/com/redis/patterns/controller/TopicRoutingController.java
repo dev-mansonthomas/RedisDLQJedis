@@ -23,7 +23,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/topic-routing")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class TopicRoutingController {
 
     private final TopicRoutingService topicRoutingService;

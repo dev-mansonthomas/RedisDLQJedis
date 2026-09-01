@@ -6,6 +6,7 @@ import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component'
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface RoutingRule {
   condition: string;
@@ -35,7 +36,7 @@ export class ContentBasedRoutingComponent implements OnInit {
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/content-routing';
+  private apiUrl = `${API_BASE}/content-routing`;
 
   // Form fields
   paymentId = signal('');

@@ -22,7 +22,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/fan-out")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class FanOutController {
 
     private final FanOutService fanOutService;

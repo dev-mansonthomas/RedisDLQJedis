@@ -32,7 +32,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/dlq")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*") // Configure appropriately for production
 public class DLQController {
 
     private final DLQMessagingService dlqMessagingService;

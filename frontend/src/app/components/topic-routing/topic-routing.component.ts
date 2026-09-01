@@ -7,6 +7,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { RoutingRulesService, RoutingRule, RoutingMetadata } from '../../services/routing-rules.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface RoutedStream {
   streamName: string;
@@ -917,7 +918,7 @@ export class TopicRoutingComponent implements OnInit {
   private refreshService = inject(StreamRefreshService);
   private rulesService = inject(RoutingRulesService);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/topic-routing';
+  private apiUrl = `${API_BASE}/topic-routing`;
 
   // Exchange stream name
   exchangeStream = 'events.topic.v1';

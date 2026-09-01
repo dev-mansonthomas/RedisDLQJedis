@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DlqNarrationComponent } from './dlq-narration.component';
 import { DlqScenarioService } from '../../services/dlq-scenario.service';
 import { settle } from '../../testing/change-detection';
+import { API_BASE } from '../../api.config';
 
 /**
  * Guard for the narration panel — and a genuine `OnPush` guard, unlike `dlq-actions`.
@@ -16,7 +17,7 @@ import { settle } from '../../testing/change-detection';
  * go red instead of being repainted for free by a co-located signal write.
  */
 describe('DlqNarrationComponent', () => {
-  const CONFIG_URL = 'http://localhost:8080/api/dlq/config?streamName=test-stream';
+  const CONFIG_URL = `${API_BASE}/dlq/config?streamName=test-stream`;
 
   let fixture: ComponentFixture<DlqNarrationComponent>;
   let http: HttpTestingController;

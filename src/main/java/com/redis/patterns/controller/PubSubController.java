@@ -21,7 +21,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/pubsub")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class PubSubController {
 
     private final PubSubService pubSubService;

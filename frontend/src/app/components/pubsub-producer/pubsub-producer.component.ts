@@ -2,6 +2,7 @@ import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/cor
 
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { API_BASE } from '../../api.config';
 
 /**
  * Component for publishing messages to Redis Pub/Sub channels.
@@ -234,7 +235,7 @@ interface PublishResponse {
 })
 export class PubsubProducerComponent {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:8080/api/pubsub';
+  private apiUrl = `${API_BASE}/pubsub`;
 
   channel = 'fire-and-forget';
   fields = signal([
