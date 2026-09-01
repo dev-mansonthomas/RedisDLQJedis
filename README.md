@@ -69,7 +69,7 @@ cd redis-messaging-patterns
 | Service | URL | Description |
 |---------|-----|-------------|
 | **Frontend** | http://localhost:4200 | Interactive web UI |
-| **Backend API** | http://localhost:8080/api | REST API endpoints |
+| **Backend API** | http://localhost:8080/api | REST API endpoints (the UI reaches them through nginx at `:4200/api`) |
 | **Redis Insight** | http://localhost:5540 | Redis GUI (add database: `redis:6379`) |
 | **Redis** | localhost:6379 | Redis server |
 
@@ -440,6 +440,15 @@ npm start
 
 Frontend runs on **http://localhost:4200** with hot-reload enabled.
 
+The frontend calls the API at a **relative** `/api`, so the dev server proxies it to the backend on
+port 8080 (`frontend/proxy.conf.json`, wired into `angular.json`). Two things follow:
+
+- **The backend must be running** (Step 2) or every API call returns `502 Bad Gateway`.
+- **To use a backend somewhere else** — a different host or port — change the `target` in
+  `frontend/proxy.conf.json`. Never put an absolute URL in the code; `npm run lint` rejects it.
+
+See [`docs/adr/0014-same-origin-api-base-path.md`](docs/adr/0014-same-origin-api-base-path.md).
+
 ---
 
 ## 📂 Key Files to Explore
@@ -618,13 +627,13 @@ RedisMessagingPatternsWithJedis/
 - **Agents / deep dives** live in [`docs/`](docs/):
   - [`docs/product/PRD.md`](docs/product/PRD.md) — problem, users, scope
   - [`docs/architecture/overview.md`](docs/architecture/overview.md) — system design, thread model, Redis keys
-  - [`docs/specs/`](docs/specs/) — one contract per pattern (11)
+  - [`docs/specs/`](docs/specs/) — one contract per pattern, plus cross-cutting specs (23 files)
   - [`docs/adr/`](docs/adr/) — key decisions and why
   - [`docs/migration-status.md`](docs/migration-status.md) — what's done vs. roadmap
   - [`docs/TODO.md`](docs/TODO.md) — open review/security/quality findings
 - [`CLAUDE.md`](CLAUDE.md) is the entry map for AI assistants.
 
-> ⚠️ This is an **educational demo** — no auth, open CORS, demo-grade security. Not for production
+> ⚠️ This is an **educational demo** — no auth, no TLS, demo-grade security. Not for production
 > exposure. See [`docs/adr/0008-demo-grade-security-posture.md`](docs/adr/0008-demo-grade-security-posture.md).
 
 ---

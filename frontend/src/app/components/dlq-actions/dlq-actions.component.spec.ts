@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DlqActionsComponent } from './dlq-actions.component';
 import { settle } from '../../testing/change-detection';
+import { API_BASE } from '../../api.config';
 
 /**
  * Behavioural spec for the status banner and the button lockout, driven by HTTP responses.
@@ -20,7 +21,7 @@ import { settle } from '../../testing/change-detection';
  * `pubsub-subscriber` (its `messages` list) and `llm-chat` (its `live` token buffer).
  */
 describe('DlqActionsComponent — status banner and button lockout', () => {
-  const API = 'http://localhost:8080/api/dlq';
+  const API = `${API_BASE}/dlq`;
 
   let fixture: ComponentFixture<DlqActionsComponent>;
   let http: HttpTestingController;

@@ -2,6 +2,7 @@ import { Component, signal, inject, ChangeDetectionStrategy } from '@angular/cor
 
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { API_BASE } from '../../api.config';
 
 export interface DLQConfig {
   streamName: string;
@@ -385,7 +386,7 @@ export interface DLQConfig {
 })
 export class DlqConfigComponent {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:8080/api/dlq';
+  private apiUrl = `${API_BASE}/dlq`;
 
   // Configuration state
   config: DLQConfig = {

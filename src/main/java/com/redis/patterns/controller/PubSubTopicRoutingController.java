@@ -20,7 +20,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/pubsub-topic-routing")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class PubSubTopicRoutingController {
 
     private final PubSubTopicRoutingService pubSubTopicRoutingService;

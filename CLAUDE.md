@@ -41,7 +41,7 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   **0 errors, 0 warnings** across both files — measured 2026-08-25.
-- **Backend tests:** `mvn clean test` — **151 tests, all 12 patterns covered**. Integration tests use a
+- **Backend tests:** `mvn clean test` — **160 tests, all 12 patterns covered**. Integration tests use a
   real Redis (8.8) started via the **docker CLI** (`support/AbstractRedisIntegrationTest`), not
   Testcontainers — the bundled docker-java negotiates Docker API v1.32, which this engine (min v1.40)
   rejects. Tests **skip** (not fail) when Docker is unavailable — a run where they skip is not a green
@@ -51,7 +51,7 @@ observability over hardening.
   with bogus "cannot be resolved" errors in this VM, and (2) any service that calls `fcall` needs
   `functionLoadReplace(Files.readString(Path.of("lua/stream_utils.lua")))` in `@BeforeEach` — without
   it Per-Key's `release_lock` silently fails and every lock survives to its 30s TTL.
-- **Frontend tests:** `cd frontend && npm test` → **110 tests** (Vitest via `@angular/build:unit-test`,
+- **Frontend tests:** `cd frontend && npm test` → **113 tests** (Vitest via `@angular/build:unit-test`,
   target in `angular.json`, `tsconfig.spec.json` so specs are type-checked — without it the builder
   bundles them unchecked). Four traps, all measured, do not rediscover them:
   1. **Never `fixture.detectChanges()` in a change-detection spec.** It checks the view
@@ -62,7 +62,13 @@ observability over hardening.
   3. **`vi.useFakeTimers()` freezes Angular's scheduler**: signals update, the DOM stays stale, every
      case fails for the wrong reason.
   4. **jsdom has no WebSocket** — always inject `WebSocketServiceStub`, never let a spec build SockJS.
-  5. **Never assert "the view grew after waiting N ms" for a component with a recurring tick.** Wall
+  5. **A stub must never be more capable than the service it replaces.** `WebSocketServiceStub`
+     exposed `connection` as a `BehaviorSubject` while the real `WebSocketService` used a plain
+     `Subject`, so every spec saw a connection-status source that *replays* to a late subscriber and
+     the real one did not. That difference hid a shipped bug across 13 spec files (see the
+     `BehaviorSubject` entry in *Cross-cutting facts*). `websocket.service.spec.ts` now pins the two
+     together — if the stub gains a capability, that test fails.
+  6. **Never assert "the view grew after waiting N ms" for a component with a recurring tick.** Wall
      time does pass in these specs (`Date.now()` advances normally — measured), but the tick's phase is
      fixed at component *init*, not at the event under test, so waiting one interval can advance the
      clock by less than one interval (measured: 948 ms after a 1300 ms wait). Assert the rendered
@@ -73,7 +79,7 @@ observability over hardening.
   (`npm ci` → lint → `npm test` → build → `npm audit --audit-level=moderate`), **lua** (`luacheck`,
   zero warnings tolerated). The skip gate is the point: the Redis integration tests *assume themselves
   away* without Docker, so a runner without it would go green having tested almost nothing. It also
-  floors the total at **145** tests (raised 2026-08-28 with the suite at 151) — the floor catches tests
+  floors the total at **154** tests (raised 2026-08-28 with the suite at 160) — the floor catches tests
   vanishing *silently*, which the skip gate cannot see because a test that never ran is not a skipped
   test. Raise it deliberately as the suite grows, never lower it by accident. **Job names carry no test
   count**, and cannot: `jobs.<id>.name` is resolved before the job runs (contexts `github`/`needs`/
@@ -136,6 +142,24 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 ## Cross-cutting facts agents must know
 
 - **Context path is `/api`** — every REST path and the WebSocket endpoint are prefixed with it.
+- **The frontend never names an origin — `API_BASE = '/api'` is the single source of truth**
+  (`frontend/src/app/api.config.ts`, ADR-0014). It replaced `http://localhost:8080/api` at **19** call
+  sites. Those absolute URLs bypassed the `/api/` proxy that `frontend/nginx.conf` already had, so
+  every REST call and the SockJS handshake went cross-origin to the published backend port. Relative
+  now works on both run paths: nginx proxies it in Docker, and **`frontend/proxy.conf.json`** (wired
+  via `angular.json` → `serve.options.proxyConfig`) proxies it under `npm start` — without that file
+  relative URLs have nowhere to go, and the failure is loud (the SPA fallback answers `/api/...` with
+  `index.html` and 200; a wired-but-backendless proxy answers **502**). An eslint
+  `no-restricted-syntax` rule rejects `http(s)://localhost|127.0.0.1[:port]/api` in any `.ts`, as a
+  `Literal` **and** as a `TemplateElement` — both selectors are needed, and both were proven to fire.
+  **SockJS accepts the relative form** (`url-parse` resolves it against `location` in a browser); it
+  does *not* under Node with no `location`, which is a second reason a spec must inject
+  `WebSocketServiceStub` instead of building a real socket.
+- **There is no committed frontend bundle any more.** `src/main/resources/static/` held a stale one
+  (12 files, 592 KB) that Spring Boot's default static handler **served** at
+  `http://localhost:8080/api/` — a second, broken copy of the app on the backend port, and the thing
+  that matched `read_claim_or_dlq` in minified JS during code searches. Deleted 2026-08-28;
+  `GET :8080/api/` is now 404. Do not re-add one: the Docker frontend is its own nginx image.
 - **Lua auto-loads** on startup via `RedisLuaFunctionLoader` (`@PostConstruct`, replaces the library).
 - **Stream visualization uses `XREVRANGE`** (read-only, no PENDING side effects); **processing uses
   `XREADGROUP`/Lua**. Don't read groups for display — it creates phantom pending entries.
@@ -209,7 +233,14 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
   `PerKeySerializedIntegrationTest` assert no job is processed twice under saturation. Note Token
   Bucket's margin is thinner than the rule of thumb (`RECLAIM_MIN_IDLE_MS` 15s vs 10s for a CSV job =
   1.5x, not 2x) — it holds because it still exceeds the work time, so treat those two constants as
-  coupled. The **LLM Chat sweeper remains unaudited** — see `docs/TODO.md`.
+  coupled. **The LLM Chat sweeper is now audited too** (`LlmRecoveryDuplicationTest`, 2026-08-28) — and it is
+  the one pattern where neither timing nor a Redis lock is the protection: `minIdleMs` (3250 ms) is
+  *shorter* than a slow generation on purpose, so the sweeper reclaims live entries repeatedly and the
+  only thing preventing a doubled reply is the in-process `LlmResponderWorker.isInFlight` set
+  (ADR-0010). Stub that guard to `false` and 3 of the 4 cases go red: **2** replies for one message,
+  **13** for 8. Two consequences to keep: the guard is checked **before** the delivery-count check, so
+  a slow-but-healthy generation is never dead-lettered for being slow; and being in-process, it would
+  not survive a second backend instance sweeping the same conversation.
 - **Per-Key Serialized is the one deliberate exception to that rule** (2026-08-26): `RECLAIM_MIN_IDLE_MS`
   is **1000 ms against 2700 ms of work**, i.e. *shorter*. It is safe **only** because in this pattern
   minIdle is not what prevents a second run — the **per-key `SET NX` lock is**. A worker that claims a
@@ -231,6 +262,32 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
   Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
   corrupted classes (`ClassFormatError: Truncated class file`).
+- **`WebSocketService.connectionStatus` is a `BehaviorSubject`, and it must stay one** (fixed
+  2026-08-28). The service is `providedIn: 'root'`, so its socket **outlives a route change**: a
+  plain `Subject` emits only on a *transition*, so every component created after the socket opened —
+  i.e. anything reached by **SPA navigation** rather than a page load — subscribed to a source that
+  would never speak again. Two shipped symptoms, one cause, both invisible on a direct page load:
+  1. `per-key-lanes`' three column badges read **Disconnected** forever (measured: 4/4 Connected on a
+     cold load of `/per-key-serialized`, 3/4 Disconnected when reached from `/dlq`).
+     **Six components subscribe; three were relying on a replay that never came.** Immune:
+     `stream-viewer` and `pubsub-subscriber`, which seed from `isConnected()` after subscribing (now
+     redundant but harmless), and `request-reply`, which self-heals by setting the flag on the first
+     event. Affected: `per-key-lanes` and `pubsub-topic-routing` (stale badge only) and `llm-chat`
+     (functional — see below). Seeding by hand is the workaround, not the contract; do not add a
+     fourth copy of it.
+  2. **LLM Chat's long reply arrived as one block.** The per-cid re-subscription that tells the server
+     which conversation to stream lives *inside* that status callback
+     (`llm-chat.component.ts`, "(Re)subscribe on every (re)connection"), so on SPA navigation it never
+     ran and the reply came only from the 1500 ms REST poll. Measured on the pre-fix build: **169**
+     DOM repaints over ~7s on a cold load vs **7** (largest jump 1479 chars) via SPA navigation; after
+     the fix, **171** on both. This is what the 🟡 "streaming is invisible" report was, closed
+     2026-08-25 as not-reproducible after a four-case sweep that varied the prompt and the internals
+     panel but loaded the page directly every time — the one variable that mattered was never varied.
+  **Trap for anyone verifying UI in a browser: reach the page the way a user does.** A
+  `page.goto(route)` cold load exercises a different ordering from a sidebar click, and this class of
+  bug only exists in the second. Also: never count connection badges with a regex like
+  `/connected/i` — it matches **Dis**connected, which is how one verification pass reported this page
+  healthy while it was broken.
 - **Live UI updates** come from `RedisStreamListenerService` (one Virtual Thread per monitored
   stream, `XREAD BLOCK 1000`) broadcasting `DLQEvent`/`PubSubEvent` over WebSocket.
 - **Several services clear their demo streams on startup** (`@Order`-sequenced runners) for a clean slate.
@@ -247,3 +304,14 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **No auth** (by design — ADR-0008). **CORS and WebSocket origins are restricted to an explicit
   allow-list** (`CorsConfig` / `WebSocketConfig`, driven by `app.cors.allowed-origins`, default the
   local frontend/backend). Still not deployment-ready (no auth/TLS) — see ADR-0008 / TODO.
+  Two facts about that policy, both measured 2026-08-28, that are easy to get wrong:
+  1. **`CorsConfig` installs a `CorsFilter`, not a `CorsRegistry`.** The filter runs before the
+     `DispatcherServlet`, so it rejects a foreign origin with **403** whatever a handler declares.
+     The familiar "`@CrossOrigin` overrides the global config" rule applies to `addCorsMappings`, not
+     to a standalone filter — so the 12 controllers that carried `@CrossOrigin(origins = "*")` were
+     dead code, not a bypass. They are gone, and `CorsAllowListTest` scans the controller package to
+     keep them gone (it asserts it found ≥12 `@RestController`s, so it cannot pass vacuously).
+  2. **The frontend no longer triggers CORS at all on either run path** (ADR-0014): it calls a
+     relative `/api`, which nginx (Docker) or the dev-server proxy (`npm start`) serves same-origin.
+     The allow-list still matters because compose publishes 8080, so the backend is directly
+     reachable — it is what answers 403 there.

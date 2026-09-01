@@ -32,8 +32,11 @@ COPY nginx.conf /etc/nginx/conf.d/
 # Copy built application
 COPY --from=build /app/dist/redis-messaging-patterns-frontend/browser /usr/share/nginx/html
 
-# Ensure all static files are readable by nginx
-RUN chmod -R a+r /usr/share/nginx/html
+# nginx workers run as the unprivileged `nginx` user and do not own these files, so they read
+# them through the "other" bits. Set the modes explicitly instead of a blanket `chmod -R a+r`:
+# `a+r` never adds the +x directories need to be traversed, and never clears an execute bit that
+# a build artifact should not carry. `X` applies +x to directories only.
+RUN chmod -R u=rwX,go=rX /usr/share/nginx/html
 
 # Expose port
 EXPOSE 80

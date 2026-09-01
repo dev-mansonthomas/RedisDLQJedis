@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface JobType {
   name: string;
@@ -52,7 +53,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/token-bucket';
+  private apiUrl = `${API_BASE}/token-bucket`;
   private configPollInterval: ReturnType<typeof setInterval> | null = null;
   private progressPollInterval: ReturnType<typeof setInterval> | null = null;
   private logsPollInterval: ReturnType<typeof setInterval> | null = null;

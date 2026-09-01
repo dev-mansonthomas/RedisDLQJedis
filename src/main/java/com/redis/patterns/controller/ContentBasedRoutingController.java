@@ -18,7 +18,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/content-routing")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class ContentBasedRoutingController {
 
     private final ContentBasedRoutingService routingService;

@@ -1,0 +1,26 @@
+# gitleaks configuration for the Redis Messaging Patterns demo.
+#
+# This project holds no credentials by design (ADR-0008: no auth, no secrets; `.env` carries only
+# REDIS_HOST/REDIS_PORT). The pre-commit guard stays fully armed — this file only narrows one
+# well-understood false positive.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Dotted lowercase identifiers: Redis stream names, consumer groups and the demo's topic/routing keys
+(e.g. `order.place.regular.us.v1`, `jobs.imageProcessing.v1`, `events.topic.v1`). The
+`generic-api-key` rule fires on these because an assignment such as
+`selectedRoutingKey = 'order.place.regular.us.v1'` pairs a Key-suffixed identifier with a value of
+entropy ~3.6.
+
+Deliberately narrow: the shape allowed here is lowercase words joined by dots, each segment at most
+16 characters. No real credential looks like this — API keys, tokens and JWTs carry mixed case, long
+unbroken random runs, or base64 padding, none of which this pattern can express. Verified after
+adding: an AWS key, a GitHub token and a high-entropy generic secret are all still caught.
+"""
+regexTarget = "secret"
+regexes = [
+  '''^[a-z][a-z0-9]{0,15}(\.[a-z0-9]{1,16}){2,6}$''',
+]

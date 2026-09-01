@@ -8,6 +8,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 import { WebSocketService, DLQEvent } from '../../services/websocket.service';
+import { API_BASE } from '../../api.config';
 
 interface SleepOption {
   label: string;
@@ -708,7 +709,7 @@ export class WorkQueueComponent implements OnInit, OnDestroy {
   private wsService = inject(WebSocketService);
   private cdr = inject(ChangeDetectorRef);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/work-queue';
+  private apiUrl = `${API_BASE}/work-queue`;
 
   // Production state
   isProducing = false;

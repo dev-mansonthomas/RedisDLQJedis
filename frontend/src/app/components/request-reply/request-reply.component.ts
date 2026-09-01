@@ -6,6 +6,7 @@ import { Subscription } from 'rxjs';
 import { WebSocketService, DLQEvent } from '../../services/websocket.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface RequestItem {
   itemId: string;
@@ -404,7 +405,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
       responseType: this.request.responseType
     };
 
-    this.http.post<{success: boolean; correlationId: string}>('http://localhost:8080/api/request-reply/send', payload)
+    this.http.post<{success: boolean; correlationId: string}>(`${API_BASE}/request-reply/send`, payload)
       .subscribe({
         next: (result) => {
           console.log('Request sent, correlation ID:', result.correlationId);

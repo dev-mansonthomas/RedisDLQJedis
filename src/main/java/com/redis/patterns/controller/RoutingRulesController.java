@@ -24,7 +24,6 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/routing-rules")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class RoutingRulesController {
 
     private final RoutingRulesService routingRulesService;

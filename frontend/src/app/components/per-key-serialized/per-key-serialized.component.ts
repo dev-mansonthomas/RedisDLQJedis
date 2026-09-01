@@ -8,6 +8,7 @@ import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.comp
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 import { keyColor } from '../../services/key-color';
 import { PerKeyLanesComponent } from '../per-key-lanes/per-key-lanes.component';
+import { API_BASE } from '../../api.config';
 
 interface Job {
   orderId: string;
@@ -35,7 +36,7 @@ export class PerKeySerializedComponent implements OnInit {
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/per-key-serialized';
+  private apiUrl = `${API_BASE}/per-key-serialized`;
 
   // Predefined jobs
   /**

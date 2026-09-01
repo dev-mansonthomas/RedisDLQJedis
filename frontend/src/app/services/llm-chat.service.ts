@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { API_BASE } from '../api.config';
 
 export interface ChatTurn {
   streamId: string;
@@ -66,7 +67,7 @@ export interface SeriesPoint {
 })
 export class LlmChatService {
   private http = inject(HttpClient);
-  private baseUrl = 'http://localhost:8080/api/llm-chat';
+  private baseUrl = `${API_BASE}/llm-chat`;
 
   postMessage(cid: string, content: string): Observable<MessagePosted> {
     return this.http.post<MessagePosted>(`${this.baseUrl}/${cid}/message`, { content });

@@ -6,6 +6,7 @@ import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component'
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
+import { API_BASE } from '../../api.config';
 
 interface ScheduledMessage {
   id: string;
@@ -259,7 +260,7 @@ export class ScheduledMessagesComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   diagrams = inject(DiagramDefinitionsService);
-  private apiUrl = 'http://localhost:8080/api/scheduled-messages';
+  private apiUrl = `${API_BASE}/scheduled-messages`;
 
   messages: ScheduledMessage[] = [];
   countdowns = new Map<string, string>();

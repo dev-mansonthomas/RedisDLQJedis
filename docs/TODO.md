@@ -18,7 +18,12 @@
   before the `innerHTML` sink) — *done 2026-06-29, PR #3*.
 - 🟠 **Redis runs with no password by default** (`REDIS_PASSWORD` empty in compose/env). Set a
   password + consider ACLs/TLS for any non-local use (see `redis-security`).
-- 🟡 `frontend/Dockerfile` adds `chmod -R a+r` on the nginx web root — benign (public static assets).
+- ✅ **`frontend/Dockerfile`'s blanket `chmod -R a+r` on the nginx web root is replaced** —
+  *done 2026-08-28* by `chmod -R u=rwX,go=rX`, which states the intent instead of only widening it:
+  `X` adds `+x` to directories only. `a+r` never added the `+x` a directory needs to be traversed,
+  and never cleared an execute bit a build artifact should not carry. Measured in the running
+  container: `755` on directories, `644` on files, **0** world-executable files, **0** directories
+  nginx cannot traverse. (busybox `chmod` does accept the `X` symbolic mode — checked, not assumed.)
 
 ## Correctness / build
 
@@ -41,7 +46,7 @@
   (latest `8.0.0`); the Python/Node pins float and already resolve to the latest. They still run, so
   this is a chore, not a bug. → Bump in one pass **after** post #2 ships, and re-run
   `blog/dlq-redis-streams/verify.sh`; the NRedisStack and Rust jumps cross majors, so expect API edits.
-- ✅ **Frontend test runner shipped** — *done 2026-08-21*: `npm test` runs **18 Vitest specs** through
+- ✅ **Frontend test runner shipped** — *done 2026-08-21*: `npm test` runs Vitest specs (18 then, **110** today) through
   `@angular/build:unit-test`, with `tsconfig.spec.json` wired so specs are actually type-checked
   (verified by planting a type error and watching the run fail). Covers slice A of
   [`specs/frontend-test-runner.md`](specs/frontend-test-runner.md) — `computeRate`'s 6 cases — plus the
@@ -51,7 +56,7 @@
   refuses to pass if **any** test was skipped, because the Redis integration tests assume themselves
   away when Docker is missing — a Docker-less runner would otherwise report green while testing almost
   nothing. That gate was verified by planting `skipped="8"` in a surefire report and confirming it
-  fails with the offending class named. It also floors the suite at 100 tests (139 today). Every step
+  fails with the offending class named. It also floors the suite at 154 tests (160 today; it read 100 when this line was written). Every step
   was run locally from a clean `npm ci` before being written into the workflow.
   Still manual, deliberately: the browser-mode layout rule (slice C) and the 12-page walkthrough.
 ### Toolchain inventory (required vs VM, updated 2026-06-29)
@@ -60,7 +65,7 @@
 |------|-------------------|----|--------|
 | JDK | 21 (`pom.xml`, Dockerfile temurin-21) | 21.0.11 | ✅ installed |
 | Maven | 3.9 (Dockerfile `maven:3.9`) | 3.9.16 | ✅ installed |
-| Node | 22 (frontend Dockerfile `node:22-alpine`) | 24.16.0 | 🟡 runtime VM is 24; build image still `node:22-alpine` (builds fine; not pinned) |
+| Node | 24 (frontend Dockerfile `node:24-alpine`) | 24.16.0 | ✅ parity (row was stale until 2026-08-28) |
 | luacheck | dev-only Lua lint (`.luarc.json`) | 1.2.0 (Lua 5.1) | ✅ installed |
 | redis-cli | client for `lua/load.sh` | 7.0.15 | ✅ ok as client; local *server* must be 8.8+ (use Docker) |
 | Docker / Compose | modern (`docker compose`, no v1 `docker-compose`) | 29.5.2 / v5.1.4 | ✅ |
@@ -80,10 +85,22 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
   subscribers and `keyRouting` described the Lua `route_message` stream router, so only the *names*
   were misleading. Renamed to `pubsubTopicRouting` and `streamTopicRouting` so the trap cannot be
   re-reported. Both pages re-checked in a browser: 2 diagrams each, no mermaid syntax error.
-- 🟡 **Hardcoded `http://localhost:8080` API base URLs** in `redis-api.service.ts`,
-  `routing-rules.service.ts`, `websocket.service.ts`, and the `apiUrl` field of ~11 pattern
-  components. Works only because ports are published to the host. → Centralize in one
-  environment/config (Angular `environment.ts` or a runtime config) for portability.
+- ✅ **The API base URL is centralized and relative** — *done 2026-08-28*, see
+  [ADR-0014](adr/0014-same-origin-api-base-path.md). **19** call sites, not ~14. This was filed as a
+  portability chore and it was also a live misconfiguration: `frontend/nginx.conf` *already* proxied
+  `/api/` and `/api/ws` to `backend:8080`, and the absolute URLs bypassed that proxy, making every
+  REST call and the SockJS handshake cross-origin to a different port. That is the only reason the
+  demo needed CORS on its happy path.
+  Now one constant, `API_BASE = '/api'` (`frontend/src/app/api.config.ts`), plus a new
+  `frontend/proxy.conf.json` wired into `angular.json` (`serve.options.proxyConfig`) — without it
+  relative URLs have nowhere to go under `ng serve`. An eslint `no-restricted-syntax` rule (two
+  selectors, `Literal` and `TemplateElement`, both proven to fire) stops the 19 coming back.
+  Measured in a browser on `/dlq`, `/per-key-serialized`, `/work-queue`, `/llm-chat`: every `/api`
+  request goes to host `localhost:4200`, SockJS upgrades to
+  `ws://localhost:4200/api/ws/dlq-events/...`, `Burst 200 jobs` POSTs to
+  `localhost:4200/api/work-queue/produce/burst` → 200 with 399 jobs flowing, 0 console errors.
+  Dev-server proxy proven wired by its failure mode: `/api/dlq/config` with no backend up returns
+  **502**, where an unwired proxy returns the SPA `index.html` with 200.
 - 🟡 The in-flight mermaid feature repeats the same `diagrams = inject(DiagramDefinitionsService)`
   + identical `<app-mermaid-diagram>` block across ~11 components. Acceptable, but a shared wrapper
   or a small base could reduce duplication.
@@ -109,12 +126,36 @@ matching the VM (Angular 22 requires node ^22.22.3 || ^24.15.0 anyway).
   (`RECLAIM_MIN_IDLE_MS` 15000 vs a 10000ms CSV job). It is safe because minIdle still exceeds the
   work time, but those two constants are now coupled — raising a job's processing time above 7.5s
   without raising the reclaim threshold reintroduces the failure mode.
-- 🟠 **The LLM Chat recovery sweeper is still unaudited** for the same failure mode. It is the
-  last claim-based path with no duplicate-processing test. → Same recipe: saturate it, then assert the
-  output stream holds no duplicate message id.
-- 🟡 **`@CrossOrigin(origins = "*")` on `WorkQueueController`** contradicts the `CorsConfig`
-  allow-list documented in `CLAUDE.md`. Other pattern controllers may carry the same annotation.
-  → Cross-cutting security decision, deliberately out of scope for that slice.
+- ✅ **The LLM Chat recovery sweeper is audited** — *done 2026-08-28*, `LlmRecoveryDuplicationTest`
+  (4 cases, ~22s). **The planned recipe — saturate it — was the wrong shape, the same lesson Per-Key
+  Serialized recorded.** Every other pattern is protected by *timing* (`minIdle` outlasting the work)
+  or by a *Redis* lock; here `minIdleMs` (3250 ms) is deliberately **shorter** than a slow generation,
+  so the sweeper *does* reclaim live entries, repeatedly. The only thing between that and a doubled
+  reply is `LlmResponderWorker.isInFlight` — an in-process `Set` (ADR-0010). So the audit drives that
+  guard head-on: one message, a ~2.4s generation against a 300 ms `minIdle`, ~20 reclaims of a live
+  entry, and exactly one reply must land. Replies echo the prompt, so a duplicate is detected by
+  content, not by count alone.
+  **Proven able to fail:** with `isInFlight` stubbed to `false`, **3 of the 4 cases go red** — 2
+  identical replies for one message, and **13 replies for 8 messages**. The 4th
+  (`everyUserTurnRemainsInTheStreamExactlyOnce`) stays green under that regression and says so in its
+  javadoc: it pins the premise of the content-based detection, it is not an audit case.
+  A third case pins an ordering that is easy to break: the in-flight check sits **before** the
+  delivery-count check, so a generation reclaimed more often than `maxDeliveries` is not
+  dead-lettered for being slow.
+  **Limit, unchanged and by design:** the guard is in-process, so a second backend instance sweeping
+  the same conversation would not see the first one's in-flight set (ADR-0010 already states this).
+- ✅ **`@CrossOrigin(origins = "*")` is gone from every controller** — *done 2026-08-28*. It was on
+  **12** of the 13, not just `WorkQueueController` (only `LlmChatController`, the newest, was clean).
+  **The severity was overstated when this was triaged, and measuring corrected it:** the annotation
+  did *not* defeat the allow-list. `CorsConfig` installs a `CorsFilter`, which runs before the
+  `DispatcherServlet` and rejects a foreign origin with **403** whatever the handler declares — the
+  annotation-beats-global-config rule applies to a `CorsRegistry` (`addCorsMappings`), not to a
+  standalone filter. So this was dead code, not an active bypass, and removing it is hygiene: it was
+  a trap armed for the day the filter is dropped or reordered.
+  Guarded by `CorsAllowListTest` (5 cases): the allow-list echoes an allowed origin, rejects a
+  foreign GET and a foreign preflight, a wildcard `@CrossOrigin` controller behind the real filter
+  still 403s (the characterization case), and a classpath scan asserts **no** controller carries the
+  annotation — with a floor of 12 `@RestController`s found, so the scan cannot pass vacuously.
 - ✅ **`fanOut` diagram matches the code** — *done 2026-08-21*. It was wrong in three ways, not one:
   3 named services instead of 4 workers, `events.fanout.v1` instead of `fanout.events.v1`, and
   invented done-stream names. Rewritten against the service: 4 workers, the real stream/DLQ/done
@@ -239,10 +280,24 @@ These are about what a prospect *sees*. They are feature work, not defects, exce
   correctness check for the failure mode that shipped 120 duplicated jobs in the Work Queue — and on
   that same breached run a slot-collision detector flagged 5 rows where interval judgement flagged 4,
   the two extras being legitimate hand-offs inside one second.
-- 🟡 **LLM Chat: token-by-token streaming reported as invisible on long replies** — the text
-  is said to arrive as one block after a wait, while the token counter climbs.
-  **Not reproducible — closed 2026-08-25 after a four-case sweep**, and the earlier 2026-08-21
-  measurement stands. The sweep drove the real page with a `MutationObserver` in-page (so it records
+- ✅ **LLM Chat: token-by-token streaming really did arrive as one block — root cause found and fixed
+  2026-08-28.** The author was right and the 2026-08-25 verdict below was wrong. Cause: the per-cid
+  re-subscription that tells the server which conversation to stream lives *inside*
+  `getConnectionStatus().subscribe(...)`, and that observable was a plain `Subject`. The service is a
+  root singleton, so on **SPA navigation** the socket was already open, the callback never fired, no
+  cid subscription was sent, and the reply arrived only via the 1500 ms REST poll. Measured on the
+  pre-fix build: **169** DOM repaints over ~7s on a cold load vs **7** (largest jump 1479 chars) when
+  the page was reached by clicking the sidebar; after the one-line fix (`Subject` →
+  `BehaviorSubject(false)`), **171** on both. Same fix closes the per-Key badge bug below — one cause,
+  two symptoms.
+  **Why the sweep missed it, and the lesson:** its four cases varied the *prompt* and the *internals
+  panel* and held the entry path constant — every case was a direct page load. A sweep that varies two
+  irrelevant dimensions and none of the relevant one proves nothing, however carefully it is measured.
+  The 165-vs-6 paint difference it did find was real and sent the investigation after the wrong
+  suspect (`MockLlmClient`'s `long text` keyword).
+  *Historical record of that investigation, kept because its measurements are still valid for the
+  cold-load path:* **Not reproducible — closed 2026-08-25 after a four-case sweep**, and the earlier
+  2026-08-21 measurement stands. The sweep drove the real page with a `MutationObserver` in-page (so it records
   what the browser repaints, not what a poll samples) across the cases the first measurement missed:
 
   | Case | Prompt | Internals | 1st char | Length | Distinct paints | Largest jump |
@@ -336,10 +391,54 @@ These are about what a prospect *sees*. They are feature work, not defects, exce
      stay inside the window. Verified — two clicks give `12 of 12 messages` with no indicator, and all
      12 rows end up visibly marked after twelve successes.
 
-- 🟡 **`src/main/resources/static/` holds a committed frontend bundle** (noticed while grepping: it
-  matched `read_claim_or_dlq` in minified JS). It is stale relative to `frontend/`, and nothing in the
-  documented run paths serves it — the Docker frontend is its own nginx image. → Confirm it is dead
-  weight and delete it, or document what serves it.
+- ✅ **The committed frontend bundle in `src/main/resources/static/` is deleted** — *done 2026-08-28*,
+  12 files / 592 KB. **"Nothing serves it" was wrong**: Spring Boot's default static handler does, and
+  with `context-path: /api` it was reachable at `http://localhost:8080/api/` — a stale copy of the app
+  on the backend port, which its own `base href="/"` then loaded broken (chunks requested from `/`,
+  outside the context path). Not dead weight; a second, wrong app. Verified after removal:
+  `GET :8080/api/` → **404**. It also polluted every code search — it is what matched
+  `read_claim_or_dlq` in minified JS.
+
+## Found while closing the CORS / URL / cleanup batch (2026-08-28)
+
+- ✅ **`WebSocketService.connectionStatus` was a `Subject`, so late subscribers never learned the
+  socket was open** — *fixed 2026-08-28*, one line to `BehaviorSubject<boolean>(false)`. Reported by
+  the author as "the per-key websocket badges say disconnected, everywhere else it works". It is
+  **not** a regression from this batch: `git show HEAD:` confirms the pre-change `per-key-lanes` had
+  no seeding and the pre-change service used the same plain `Subject` — the bug shipped with the grid
+  in `a6a3876` (PR #30). Reproduced deterministically and fixed; see the `BehaviorSubject` entry in
+  `CLAUDE.md` for the mechanism and both symptoms.
+- 🟡 **The test suite could not have caught it: `WebSocketServiceStub` was more capable than the
+  service.** The stub's `connection` is a `BehaviorSubject`, the real one was a `Subject`, so all 13
+  spec files were written against a source that replays — the failure mode was unreachable by
+  construction. `websocket.service.spec.ts` now pins the two contracts together (3 cases; all three
+  fail on the pre-fix service, with `[]` where the stub yields one value). → **Audit the other stubs
+  for the same drift.** `src/app/testing/` is small today, but every capability a stub adds beyond its
+  subject is a blind spot with a green test next to it.
+- 🟡 **Two verification methods used in this project have now produced a false "healthy".** Recorded
+  so they are not repeated: (1) counting connection badges with `/live|Connected|connected/i`, which
+  matches **Dis**connected — it reported `/per-key-serialized` healthy while 3 of its 4 badges were
+  red; (2) a `MutationObserver` probe that tracks "the last leaf element longer than 20 chars", which
+  reported 2 repaints where a selector-free probe on the transcript's total length found 171. →
+  Prefer selector-free, whole-subtree measurements, and assert on *exact* strings, never a substring
+  that another state contains.
+- 🟡 **Browser verification must reach the page the way a user does.** Every UI check in this repo so
+  far used `page.goto(route)` — a cold load. Both bugs above exist **only** on SPA navigation, because
+  the socket is already open by then. The 12-page walkthrough should click the sidebar, not re-navigate.
+
+- 🟡 **`PerKeySerializedIntegrationTest#jobsOnDifferentKeysRunInParallel` is load-flaky.** It timed
+  out once in a full `mvn clean test` (class elapsed **117s**), then passed in isolation (**59.9s**)
+  and in an immediate full re-run (**160 tests, 0 failures, 0 skipped**). It asserts a 60s wall-clock
+  deadline on three distinct-key jobs, so it fails when the machine is busy rather than when the code
+  is wrong — and the suite now carries one more Redis container's worth of load than when that
+  deadline was chosen. Not caused by this batch (nothing here touches `PerKeySerializedService`), but
+  it will redden CI at random. → Either raise the deadline, or assert the *ordering* rather than the
+  elapsed time, the way the per-key grid does.
+- 🟡 **`README.md` still described the demo's CORS as "open"** in its security warning — untrue since
+  PR #3 (2026-06-29) locked it to an allow-list. Corrected 2026-08-28 in the same pass; flagged here
+  because it is the second stale claim found in a doc this week, after the CI job name that read
+  `139` for two suite growths. A statement of *current posture* in prose rots exactly like a test
+  count does.
 
 ## Code review & security
 
@@ -353,7 +452,7 @@ These are about what a prospect *sees*. They are feature work, not defects, exce
 
 ## Docs
 
-- ✅ Addressed in this pass: `docs/` (PRD, architecture, 11 specs, 8 ADRs, migration-status),
+- ✅ Addressed in that pass (2026-06-26): `docs/` (PRD, architecture, specs, ADRs, migration-status),
   root `CLAUDE.md`, and README pattern list sync (see `/doc-sync`).
 - 🟡 `augmentcode/CONTEXT.md` & `IMPLEMENTATION_REFERENCE.md` describe only the original 4 patterns
   and legacy stream names (`test-stream`). Kept for history; `docs/` supersedes them.

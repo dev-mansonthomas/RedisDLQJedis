@@ -13,7 +13,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/token-bucket")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class TokenBucketController {
 
     private final TokenBucketService service;
